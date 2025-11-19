@@ -48,38 +48,38 @@ devtools::install_github("lucapresicce/spFFBS")
 
 ### Section 5.1 - Amortized Bayesian Forecast
 
-Running [`ABF - genfun.R`](ABF - genfun.R), [`ABF - simulation.R`](ABF - simulation.R) produce the results, contained in the following objects: 
-* _interpolation plots_: [`heatmap_amortized_Om.png`](./output/heatmap_amortized_Om.png), [`heatmap_amortized_Y.png`](./output/heatmap_amortized_Y.png).
+Running [`ABF-genfun.R`](ABF-genfun.R), [`ABF-simulation.R`](ABF-simulation.R) produce the results, contained in the following objects: 
+* _interpolation plots_: [`heatmap_amortized_Om.png`](./plots/heatmap_amortized_Om.png), [`heatmap_amortized_Y.png`](./plots/heatmap_amortized_Y.png).
 
-This section displayed [`heatmap_amortized_Om.png`](./output/heatmap_amortized_Om.png) as Figure. While we present [`heatmap_amortized_Y.png`](./output/heatmap_amortized_Y.png) in the Appendix D.
+This section displayed [`heatmap_amortized_Om.png`](./plots/heatmap_amortized_Om.png) as Figure. While we present [`heatmap_amortized_Y.png`](./plots/heatmap_amortized_Y.png) in the Appendix D.
 
 ### Section 5.2 - Transfer Learning in $\mathscr{M}$-closed & $\mathscr{M}$-open settings
 
-Running [`MclosedMopen - simulation.R`](MclosedMopen - simulation.R), [`MclosedMopen - graphics.R`](MclosedMopen - graphics.R) produce the results, contained in the following objects: 
+Running [`MclosedMopen-simulation.R`](MclosedMopen-simulation.R), [`MclosedMopen-graphics.R`](MclosedMopen-graphics.R) produce the results, contained in the following objects: 
 * _replication results_: `replication_results.RData`;
 * _posterior metrics plot_: [`plot_theta.png`](./plot_theta.png), [`plot_omega.png`](./plot_omega.png), [`plot_sigma.png`](./plot_sigma.png);
-* _predictive metrics plot_: [`plot_pred.png`](./output/plot_pred.png).
+* _predictive metrics plot_: [`plot_pred.png`](./plots/plot_pred.png).
 
 In this section are displayed [`plot_theta.png`](./plot_theta.png), [`plot_omega.png`](./plot_omega.png) as Figures, and the contents of 100 replications, collected in `replication_results.Rdata`. While we present [`plot_sigma.png`](./plot_sigma.png), and [`plot_pred.png`](./plot_pred.png) in the Appendix D.
 
-**Note:** The output file `replications_results.RData` is **not included in this repository** because its size exceeds GitHub's 100 MB limit (the file is approximately 210 MB). However, it is **fully reproducible** by running the script [`MclosedMopen - simulation.R`](../script/MclosedMopen - simulation.R).  
+**Note:** The output file `replications_results.RData` is **not included in this repository** because its size exceeds GitHub's 100 MB limit (the file is approximately 210 MB). However, it is **fully reproducible** by running the script [`MclosedMopen-simulation.R`](../script/MclosedMopen-simulation.R).  
 Please be aware that this script may take a **long time to execute**, depending on your system’s resources. If needed, the original `replications_results.RData` file can be provided upon request.
 
 ### Section 6 - Copernicus case study analysis
 
-Running [`Copernicus data - analysis.R`](Copernicus data - analysis.R) produces the results, contained in the following objects: 
+Running [`Copernicusdata-analysis.R`](Copernicusdata-analysis.R) produces the results, contained in the following objects: 
 * _data analysis results_: [`copernicus_temporal_forecast_points.png`](./copernicus_temporal_forecast_points.png);
 * _interpolation & uncertainty quantification plots_: [`copernicus_interpolation_outsample.png`](./copernicus_interpolation_outsample.png), [`copernicus_forecast_temp.png`](./copernicus_forecast_temp.png), [`copernicus_forecast_rain.png`](./copernicus_forecast_rain.png), [`copernicus_forecast_wind.png`](./copernicus_forecast_wind.png), [`copernicus_forecast_evps.png`](./copernicus_forecast_evps.png), [`copernicus_interpolation_insample.png`](./copernicus_interpolation_insample.png);
 
 <!--
-* _exploratory spatial data analysis_: [`eda_multivariate.png`](./output/eda_multivariate.png).
+* _exploratory spatial data analysis_: [`eda_multivariate.png`](./plots/eda_multivariate.png).
 -->
 
 In this section are displayed [`copernicus_temporal_forecast_points.png`](./copernicus_temporal_forecast_points.png), and  [`copernicus_interpolation_outsample.png`](./copernicus_interpolation_outsample.png) as Figures. While Figures [`copernicus_forecast_temp.png`](./copernicus_forecast_temp.png), [`copernicus_forecast_rain.png`](./copernicus_forecast_rain.png), [`copernicus_forecast_wind.png`](./copernicus_forecast_wind.png), [`copernicus_forecast_evps.png`](./copernicus_forecast_evps.png), [`copernicus_interpolation_insample.png`](./copernicus_interpolation_insample.png) are described in the Section 6 body, but presented in the Appendix D.
 
 ### Appendix C.1 - Space-time weigths dynamics
 
-Running [`Weights dynamics - simulation.R`](Weights dynamics - simulation.R) produces the results, contained in the following object: 
+Running [`Weightsdynamics-simulation.R`](Weightsdynamics-simulation.R) produces the results, contained in the following object: 
 * _weights dynamics_: [`plot_weights_dynamic.png`](./plot_weights_dynamic.png);
 * _parameter dynamics_: [`plot_par_dynamic.png`](./plot_par_dynamic.png);
 * _weights distribution_: [`plot_weight_distr.png`](./plot_weight_distr.png);

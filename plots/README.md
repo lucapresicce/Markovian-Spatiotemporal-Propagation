@@ -14,7 +14,7 @@ The result objects here can be found in the reference work at:
 
 -->
 
-**Note:** The output file `replications_results.RData` is **not included in this repository** because its size exceeds GitHub's 100 MB limit (the file is approximately 210 MB). However, it is **fully reproducible** by running the script [`MclosedMopen - simulation.R`](../script/MclosedMopen - simulation.R).  
+**Note:** The output file `replications_results.RData` is **not included in this repository** because its size exceeds GitHub's 100 MB limit (the file is approximately 210 MB). However, it is **fully reproducible** by running the script [`MclosedMopen-simulation.R`](./script/MclosedMopen-simulation.R).  
 Please be aware that this script may take a **long time to execute**, depending on your system’s resources. If needed, the original `replications_results.RData` file can be provided upon request.
 
 ## Figures
