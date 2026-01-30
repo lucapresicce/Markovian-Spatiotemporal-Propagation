@@ -131,19 +131,19 @@ calculate_post <- function(Z, fixed, q = 2, p = 2) {
                         do_spatial = T, spatial = list(crd = crd, crdtilde = crd, Xtilde = X, t = tmax))
   
   L <- 200
-  Ysp_pred   <- sapply(1:L, function(l){out$spatial[[l]][1:n,]}   , simplify = "array")
-  Omega_pred <- sapply(1:L, function(l){out$spatial[[l]][-(1:n),]}, simplify = "array")
+  Ysp_pred   <- sapply(1:L, function(l){out$spatial[[1]][[l]][1:n,]}   , simplify = "array")
+  Omega_pred <- sapply(1:L, function(l){out$spatial[[1]][[l]][-(1:n),]}, simplify = "array")
   
   # RMSPE
   Ysp_postmean <- apply(Ysp_pred, c(1,2), mean)
   Ysp_upp      <- apply(Ysp_pred, c(1,2), quantile, 0.975)
   Ysp_low      <- apply(Ysp_pred, c(1,2), quantile, 0.025)
-  colMeans(sqrt((Z[,1:q,tmax+1] - Ysp_postmean)^2))
+  # colMeans(sqrt((Z[,1:q,tmax+1] - Ysp_postmean)^2))
   
   Omega_postmean <- apply(Omega_pred, c(1,2), mean)
   Omega_upp      <- apply(Omega_pred, c(1,2), quantile, 0.975)
   Omega_low      <- apply(Omega_pred, c(1,2), quantile, 0.025)
-  colMeans(sqrt((fixed$Theta[-(1:p),,tmax+1] - Omega_postmean)^2))
+  # colMeans(sqrt((fixed$Theta[-(1:p),,tmax+1] - Omega_postmean)^2))
   
   # return posterior quantiles
   Ups_50  <- cbind(Ysp_postmean, Omega_postmean)
@@ -181,8 +181,8 @@ plot_surface_interp <- function(mat, fixed_crd, title = NULL, component = 1, gri
 # Check -------------------------------------------------------------------
 
 # compute
-fixed <- tendency_gen(n = 250, q = 2, p = 2, tmax = 10, phi = 4, seed = 1997)
-Z     <- data_gen(n = 250, tmax = 10, Theta = fixed$Theta)
+fixed <- tendency_gen(n = 100, q = 2, p = 2, tmax = 10, phi = 4, seed = 1997)
+Z     <- data_gen(n = 100, tmax = 10, Theta = fixed$Theta)
 W     <- calculate_post(Z = Z, fixed = fixed)
 
 # Y

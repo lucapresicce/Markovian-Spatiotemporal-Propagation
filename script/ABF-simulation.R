@@ -161,8 +161,18 @@ pred_med_new <- pred_new_reshaped[,,1]
 pred_low_new <- pred_new_reshaped[,,2]
 pred_upp_new <- pred_new_reshaped[,,3]
 true_med_new <- Z_true_new[,,1]
+
+# ABF vs DYNBPS
 rmse_new <- sqrt(mean((pred_med_new - true_med_new)^2))
 cat(sprintf("RMSE median (new data): %.4f\n", rmse_new))
+
+# ABF vs TRUE
+rmse_abf <- sqrt(mean((pred_med_new[,1:2] - X_new[,1:2,11])^2))
+cat(sprintf("RMSE median (new data): %.4f\n", rmse_abf))
+
+# DYNBPS vs TRUE
+rmse_bps <- sqrt(mean((true_med_new[,1:2] - X_new[,1:2,11])^2))
+cat(sprintf("RMSE median (new data): %.4f\n", rmse_bps))
 
 # Plot --------------------------------------------------------------------
 
@@ -181,6 +191,7 @@ plot_surface_interp <- function(mat, fixed_crd, title = NULL, component = 1, gri
   ggplot(df_grid, aes(x = x, y = y, fill = value)) +
     geom_raster() +
     scale_fill_gradientn(colors = rev(brewer.pal(n = 11, name = "RdBu"))) + 
+    labs(x = "Easting", y = "Northing", fill = bquote(hat(Y)[list(.(component),T+1)])) +
     coord_equal() +
     ggtitle(title) +
     theme_minimal()
@@ -188,87 +199,60 @@ plot_surface_interp <- function(mat, fixed_crd, title = NULL, component = 1, gri
 
 # Y
 plots_col1_Y <- list(
-  plot_surface_interp(mat = X_new[,1:q,t_steps+1], component = 1, fixed_crd = fixed$crd, title = bquote(paste("True Response ", Y[list(1,T+1)]))),
-  plot_surface_interp(mat = true_med_new, component = 1, fixed_crd = fixed$crd, title = bquote(paste("Dynamic BPS Forecast ", hat(Y)[list(1,T+1)], " (median)"))),
-  plot_surface_interp(mat = pred_med_new, component = 1, fixed_crd = fixed$crd, title = bquote(paste("Amortized Forecast ", hat(Y)[list(1,T+1)], " (median)"))),
-  plot_surface_interp(mat = pred_low_new, component = 1, fixed_crd = fixed$crd, title = bquote(paste("Amortized Forecast ", hat(Y)[list(1,T+1)], " (", 2.5^th, " quantile)"))),
-  plot_surface_interp(mat = pred_upp_new, component = 1, fixed_crd = fixed$crd, title = bquote(paste("Amortized Forecast ", hat(Y)[list(1,T+1)], " (", 97.5^th, " quantile)")))
+  plot_surface_interp(mat = X_new[,1:q,t_steps+1], component = 1, fixed_crd = fixed$crd, title = "True"),
+  plot_surface_interp(mat = true_med_new, component = 1, fixed_crd = fixed$crd, title = "DYNBPS"),
+  plot_surface_interp(mat = pred_med_new, component = 1, fixed_crd = fixed$crd, title = "Amortized")
 )
 plots_col2_Y <- list(
-  plot_surface_interp(mat = X_new[,1:q,t_steps+1], component = 2, fixed_crd = fixed$crd, title = bquote(paste("True Response ", Y[list(2,T+1)]))),
-  plot_surface_interp(mat = true_med_new, component = 2, fixed_crd = fixed$crd, title = bquote(paste("Dynamic BPS Forecast ", hat(Y)[list(2,T+1)], " (median)"))),
-  plot_surface_interp(mat = pred_med_new, component = 2, fixed_crd = fixed$crd, title = bquote(paste("Amortized Forecast ", hat(Y)[list(2,T+1)], " (median)"))),
-  plot_surface_interp(mat = pred_low_new, component = 2, fixed_crd = fixed$crd, title = bquote(paste("Amortized Forecast ", hat(Y)[list(2,T+1)], " (", 2.5^th, " quantile)"))),
-  plot_surface_interp(mat = pred_upp_new, component = 2, fixed_crd = fixed$crd, title = bquote(paste("Amortized Forecast ", hat(Y)[list(2,T+1)], " (", 97.5^th, " quantile)")))
+  plot_surface_interp(mat = X_new[,1:q,t_steps+1], component = 2, fixed_crd = fixed$crd, title = "True"),
+  plot_surface_interp(mat = true_med_new, component = 2, fixed_crd = fixed$crd, title = "DYNBPS"),
+  plot_surface_interp(mat = pred_med_new, component = 2, fixed_crd = fixed$crd, title = "Amortized")
 )
 
 row1_Y <- plot_grid(plotlist = plots_col1_Y, nrow = 1)
 row2_Y <- plot_grid(plotlist = plots_col2_Y, nrow = 1)
 
-final_plot_Y <- plot_grid(
-  ggdraw() + draw_label(bquote(paste(1^st, " Outcome")),
-                        fontface = "bold", size = 16, vjust = 1.5),
-  row1_Y,
-  ggdraw() + draw_label(bquote(paste(2^nd, " Outcome")),
-                        fontface = "bold", size = 16, vjust = 1.5),
-  row2_Y,
-  ncol = 1,
-  rel_heights = c(0.05, 1, 0.05, 1)
-)
+# Save high-res PNG with Cairo
+ggsave("plots/heatmap_amortized_Y.png", plot_grid(row1_Y, row2_Y, nrow = 2), dpi = 320, type = "cairo")
 
-# save
-width <- 360*6
-height <- 360*3
-pointsize <- 16
-png("heatmap_amortized_Y.png", width = width, height = height, pointsize = pointsize, family = "sans")
-print(final_plot_Y)
-dev.off()
 
+# Plot surface function
+plot_surface_interp <- function(mat, fixed_crd, title = NULL, component = 1, grid_res = 100) {
+  library(RColorBrewer)
+  vals <- mat[, component]
+  interp_result <- with(data.frame(x = fixed_crd[, 1], y = fixed_crd[, 2], z = vals),
+                        interp(x, y, z, nx = grid_res, ny = grid_res, duplicate = "mean"))
+  df_grid <- data.frame(
+    x = rep(interp_result$x, times = length(interp_result$y)),
+    y = rep(interp_result$y, each = length(interp_result$x)),
+    value = as.vector(interp_result$z)
+  )
+  
+  if(component == 3 | component == 4) component <- component-2
+  ggplot(df_grid, aes(x = x, y = y, fill = value)) +
+    geom_raster() +
+    scale_fill_gradientn(colors = rev(brewer.pal(n = 11, name = "RdBu"))) + 
+    labs(x = "Easting", y = "Northing", fill = bquote(hat(Omega)[list(.(component),T+1)])) +
+    coord_equal() +
+    ggtitle(title) +
+    theme_minimal()
+}
 
 # Omega
 plots_col1_Om <- list(
-  plot_surface_interp(mat = fixed$Theta[-(1:p),,t_steps+1], component = 1, fixed_crd = fixed$crd, title = bquote(paste("True Spatial Process ", Omega[list(1,T+1)]))),
-  plot_surface_interp(mat = true_med_new, component = 3, fixed_crd = fixed$crd, title = bquote(paste("Dynamic BPS Forecast ", hat(Omega)[list(1,T+1)], " (median)"))),
-  plot_surface_interp(mat = pred_med_new, component = 3, fixed_crd = fixed$crd, title = bquote(paste("Amortized Forecast ", hat(Omega)[list(1,T+1)], " (median)"))),
-  plot_surface_interp(mat = pred_low_new, component = 3, fixed_crd = fixed$crd, title = bquote(paste("Amortized Forecast ", hat(Omega)[list(1,T+1)], " (", 2.5^th, " quantile)"))),
-  plot_surface_interp(mat = pred_upp_new, component = 3, fixed_crd = fixed$crd, title = bquote(paste("Amortized Forecast ", hat(Omega)[list(1,T+1)], " (", 97.5^th, " quantile)")))
-)
+  plot_surface_interp(mat = fixed$Theta[-(1:p),,t_steps+1], component = 1, fixed_crd = fixed$crd, title = "True"),
+  plot_surface_interp(mat = true_med_new, component = 3, fixed_crd = fixed$crd, title = "DYNBPS"),
+  plot_surface_interp(mat = pred_med_new, component = 3, fixed_crd = fixed$crd, title = "Amortized")
+  )
 plots_col2_Om <- list(
-  plot_surface_interp(mat = fixed$Theta[-(1:p),,t_steps+1], component = 2, fixed_crd = fixed$crd, title = bquote(paste("True Spatial Process ", Omega[list(2,T+1)]))),
-  plot_surface_interp(mat = true_med_new, component = 4, fixed_crd = fixed$crd, title = bquote(paste("Dynamic BPS Forecast ", hat(Omega)[list(2,T+1)], " (median)"))),
-  plot_surface_interp(mat = pred_med_new, component = 4, fixed_crd = fixed$crd, title = bquote(paste("Amortized Forecast ", hat(Omega)[list(2,T+1)], " (median)"))),
-  plot_surface_interp(mat = pred_low_new, component = 4, fixed_crd = fixed$crd, title = bquote(paste("Amortized Forecast ", hat(Omega)[list(2,T+1)], " (", 2.5^th, " quantile)"))),
-  plot_surface_interp(mat = pred_upp_new, component = 4, fixed_crd = fixed$crd, title = bquote(paste("Amortized Forecast ", hat(Omega)[list(2,T+1)], " (", 97.5^th, " quantile)")))
+  plot_surface_interp(mat = fixed$Theta[-(1:p),,t_steps+1], component = 2, fixed_crd = fixed$crd, title = "True"),
+  plot_surface_interp(mat = true_med_new, component = 4, fixed_crd = fixed$crd, title = "DYNBPS"),
+  plot_surface_interp(mat = pred_med_new, component = 4, fixed_crd = fixed$crd, title = "Amortized")
 )
 
 row1_Om <- plot_grid(plotlist = plots_col1_Om, nrow = 1)
 row2_Om <- plot_grid(plotlist = plots_col2_Om, nrow = 1)
 
-final_plot_Om <- plot_grid(
-  ggdraw() + draw_label(bquote(paste(1^st, " Outcome")),
-                        fontface = "bold", size = 16, vjust = 1.5),
-  row1_Om,
-  ggdraw() + draw_label(bquote(paste(2^nd, " Outcome")),
-                        fontface = "bold", size = 16, vjust = 1.5),
-  row2_Om,
-  ncol = 1,
-  rel_heights = c(0.05, 1, 0.05, 1)
-)
-
-# save
-width <- 360*6
-height <- 360*3
-pointsize <- 16
-png("heatmap_amortized_Om.png", width = width, height = height, pointsize = pointsize, family = "sans")
-print(final_plot_Om)
-dev.off()
-
-
-
-
-
-
-
-
-
+# Save high-res PNG with Cairo
+ggsave("plots/heatmap_amortized_Om.png", plot_grid(row1_Om, row2_Om, nrow = 2), dpi = 320, type = "cairo")
 

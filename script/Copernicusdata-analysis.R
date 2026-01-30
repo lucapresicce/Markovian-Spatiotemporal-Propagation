@@ -208,11 +208,14 @@ plot_europe_surface_variables <- function(coords, data_3d,
 
 # Load
 load("data/copernicus_data.RData")
+load("data/copernicus_predictors.RData")
 N <- dim(spatial_data)[1]
 q <- dim(spatial_data)[2]
 t <- dim(spatial_data)[3]
+p <- dim(spatial_predictors)[2]
 
 dimnames(spatial_data)[[3]] <- 1:1980
+dimnames(spatial_predictors)[[3]] <- 1:1980
 
 # eda  --------------------------------------------------------------------
 
@@ -223,20 +226,32 @@ initial_model <- vgmST(
   time  = vgm(psill = 1, model = "Exp", nugget = 0.1, range = 5),
   sill  = 1)
 for (i in 1:q) {
+  
   data_i <- spatial_data[, i, (t-144+1):(t-24)]
-  data_vec <- as.vector(data_i)
-
+  predictor_i <- spatial_predictors[, , (t-144+1):(t-24)]
+  eps_i <- matrix(0, n, length((t-144+1):(t-24)))
+  
+  for (j in 1:length((t-144+1):(t-24))) {
+    P_t <- scale(predictor_i[,,j])
+    L_t <- matrix(0, n, 11)
+    if (format(time_points[(t-144+1):(t-24)], "%m")[j] != "12") {
+      L_t[,as.numeric(format(time_points[(t-144+1):(t-24)], "%m"))[j]] <- 1
+    }
+    eps_i[,j] <- residuals(lm(data_i[,j] ~ cbind(P_t, L_t)))
+  }
+  data_vec <- as.vector(eps_i)
+  
   stfdf <- STFDF(sp = SpatialPoints(coords),
                  time = as.POSIXct(1:dim(data_i)[2], origin = "2002-01-01"),
                  data = data.frame(value = data_vec))
 
-  vgram <- variogramST(value ~ 1, data = stfdf, tlags = seq(0, 120, 10), cores = 4)
-
+  vgram <- variogramST(value ~ 1, data = stfdf, tlags = seq(0, 120, 10), cores = 12)
+  
   fitted_model <- fit.StVariogram(object = vgram, model = initial_model, method = "L-BFGS-B",
                                   lower = c(0.0001, 0.0001, 0.0001),
                                   upper = c(100000, 100000, 100000))
-
-  results[[paste0("var_", i)]] <- fitted_model
+  
+  results[[ paste0("var_", i) ]] <- fitted_model
 }
 
 print(results)
@@ -250,6 +265,9 @@ phi_seq <- unique(sapply(results, function(a) 1/a$space$range[2]))
 par_grid <- spBPS::expand_grid_cpp(rev(tau_seq), rev(phi_seq))
 J <- nrow(par_grid)
 
+tau_seq <- c(0.9999)
+phi_seq <- c(0.1800575, 0.2117943, 0.2296558, 0.3088676)
+
 # Data subsetting ---------------------------------------------------------
 
 # number of selected times
@@ -257,14 +275,17 @@ tt <- 144
 
 # Indexing
 set.seed(4-8-15-16-23-42)
-idx <- sample(1:nrow(spatial_data), 600, F)
+idx <- sample(1:N, 600, F)
 spatial_df <- spatial_data[idx,,(t-tt+1):t]
 head(spatial_df)
+spatial_df_pred <- spatial_predictors[idx,,(t-tt+1):t]
+head(spatial_df_pred)
 
 # New data dimensions
 N <- dim(spatial_df)[1]
 q <- dim(spatial_df)[2]
 t <- dim(spatial_df)[3]
+p <- dim(spatial_df_pred)[2]
 
 # coordinates
 lon <- coords[idx, 1]
@@ -277,29 +298,22 @@ d.max <- sqrt((max(coord[,1]) - min(coord[,1]))^2 +
                 (max(coord[,2]) - min(coord[,2]))^2)
 # to multiply of about 111
 
-# sinusoidally projected coordinates (scaled to 1000km units) as explanatory variables
-coords.sinusoidal <- mapproject(coords[, 1], coords[, 2],
-                                projection = "sinusoidal")
-
-radius.of.earth <- 6.371            ## 6.371 * 1000 kilometers 
-coords.sinusoidal <- radius.of.earth * (cbind(coords.sinusoidal$x,
-                                              coords.sinusoidal$y))
-
 # dates
 dates_vector <- seq(from = as.Date("1850-01-01"), by = "1 month", length.out = 1980)[(1980-t+1):(1980)]
 
-# seasonal dummy variables (departure from december)
-design_matrix <- coords.sinusoidal
-design_matrix <- array(rep(design_matrix, t), c(N, ncol(coords.sinusoidal), t))
-design_matrix2 <- array(0, c(N, 2+11, t))
+
+# design matrix -----------------------------------------------------------
+
+# design matrix with seasonal dummy variables (departure from december)
+design_matrix <- array(0, c(N, p + (12-1), t))
 for (i in 1:t) {
+  P_t <- scale(spatial_df_pred[,,i])
   L_t <- matrix(0, N, 11)
   if (format(dates_vector, "%m")[i] != "12") {
     L_t[,as.numeric(format(dates_vector, "%m"))[i]] <- 1
   }
-  design_matrix2[,,i] <- cbind(design_matrix[,,i], L_t)
+  design_matrix[,,i] <- cbind(P_t, L_t)
   }
-design_matrix <- design_matrix2
 p <- ncol(design_matrix)
 
 # subset for evaluating predictions
@@ -375,6 +389,7 @@ colnames(Y_postmean) <- colnames(Yu)
 # Plot points selcetion time-forecast
 lon <- crds[, 1]
 lat <- crds[, 2]
+custom_labels <- c("Temp","Rain","Wind","Evps")
 europe <- ne_countries(continent = "Europe", scale = "medium", returnclass = "sf")
 smp <- c(178, 262, 341, 422)
 gg_points <- ggplot() +
@@ -401,17 +416,18 @@ make_df <- function(j) {
 }
 plot_df <- map_dfr(smp, make_df)
 gg_lines <- ggplot(plot_df, aes(x = time)) +
-  geom_line(aes(y = spatial), color = "black") +
+  geom_line(aes(y = spatial), color = "black", linewidth = 0.1) +
   geom_ribbon(
     aes(ymin = low, ymax = upp, fill = factor(var)),
     alpha = 0.5,
     colour = "red",
     linetype = "dashed",
-    show.legend = TRUE
+    show.legend = TRUE,
+    linewidth = 0.1
   ) +
-  geom_line(aes(y = postmean), color = "red") +
+  geom_line(aes(y = postmean), color = "red", linewidth = 0.1) +
   facet_grid(smp ~ var, scales = "free") +
-  scale_fill_brewer(palette = "Accent") +
+  scale_fill_brewer(palette = "Accent", labels = custom_labels) +
   labs(fill = "variables") +
   guides(fill = guide_legend(override.aes = list(colour = NA, linetype = 0))) +
   theme_bw() +
@@ -422,136 +438,108 @@ gg_lines <- ggplot(plot_df, aes(x = time)) +
   )
 
 library(ggh4x)
-custom_labels <- c("Temp","Rain","Wind","Evps")
-combined_pointslines <- gg_points + gg_lines +
+gg_lines <- gg_lines +
   facet_grid2(rows = vars(smp), cols = vars(var),
     scales = "free", independent = "all", space = "free", axes = "all",
     labeller = labeller(var = setNames(custom_labels, 1:4)))
-x11(); combined_pointslines
 
-width <- 360*3
-height <- 360*1.5
-pointsize <- 16
-png("plots/copernicus_temporal_forecast_points.png", width = width, height = height, pointsize = pointsize, family = "sans")
-combined_pointslines
-dev.off()
+gg_lines <- gg_lines +
+  facet_grid2(rows = vars(smp), cols = vars(var),
+    scales = "free", independent = "all", space = "free", axes = "all",
+    labeller = labeller(var = setNames(custom_labels, 1:4)))
+# x11(); combined_pointslines
+
+
+# Save high-res PNG with Cairo
+ggsave("plots/copernicus_temporal_forecast_points.png", gg_points, dpi = 320, type = "cairo")
+ggsave("plots/copernicus_temporal_forecast_lines.png", gg_lines, dpi = 320, type = "cairo")
+
 
 # Spatial surface results
 # temp
-width <- 360*6
-height <- 360*3
-pointsize <- 16
-png("plots/copernicus_forecast_temp.png", width = width, height = height, pointsize = pointsize, family = "sans")
-wrap_plots(
-  plot_europe_surface_timeseries(
+temp_true <- plot_europe_surface_timeseries(
     coords = crds,
     data_3d = Ys,
     var = 1,
     start_date = "2002-12-01",
     time_unit = "months",
-    max_plots = 9
-  ),
-  plot_spacer(),
-  plot_europe_surface_timeseries(
+    max_plots = 4)
+temp_pred <- plot_europe_surface_timeseries(
     coords = crds,
     data_3d = Y_postmean[,,1:tmax],
     var = 1,
     start_date = "2002-12-01",
     time_unit = "months",
-    max_plots = 9
-  ),
-  ncol = 3
-) +
-  plot_layout(widths = c(1, 0.2, 1))
-dev.off()
+    max_plots = 4)
+# Save high-res PNG with Cairo
+ggsave("plots/copernicus_forecast_temp_true.png", temp_true, dpi = 320, type = "cairo")
+ggsave("plots/copernicus_forecast_temp_pred.png", temp_pred, dpi = 320, type = "cairo")
+
+
 # rain
-width <- 360*6
-height <- 360*3
-pointsize <- 16
-png("plots/copernicus_forecast_rain.png", width = width, height = height, pointsize = pointsize, family = "sans")
-wrap_plots(
-  plot_europe_surface_timeseries(
+rain_true <- plot_europe_surface_timeseries(
     coords = crds,
     data_3d = Ys,
     var = 2,
     start_date = "2002-12-01",
     time_unit = "months",
-    max_plots = 9
-  ),
-  plot_spacer(),
-  plot_europe_surface_timeseries(
+    max_plots = 4)
+rain_pred <- plot_europe_surface_timeseries(
     coords = crds,
     data_3d = Y_postmean[,,1:tmax],
     var = 2,
     start_date = "2002-12-01",
     time_unit = "months",
-    max_plots = 9
-  ),
-  ncol = 3
-) +
-  plot_layout(widths = c(1, 0.2, 1))
-dev.off()
+    max_plots = 4)
+# Save high-res PNG with Cairo
+ggsave("plots/copernicus_forecast_rain_true.png", rain_true, dpi = 320, type = "cairo")
+ggsave("plots/copernicus_forecast_rain_pred.png", rain_pred, dpi = 320, type = "cairo")
+
+
 # wind
-width <- 360*6
-height <- 360*3
-pointsize <- 16
-png("plots/copernicus_forecast_wind.png", width = width, height = height, pointsize = pointsize, family = "sans")
-wrap_plots(
-  plot_europe_surface_timeseries(
+wind_true <- plot_europe_surface_timeseries(
     coords = crds,
     data_3d = Ys,
     var = 3,
     start_date = "2002-12-01",
     time_unit = "months",
-    max_plots = 9
-  ),
-  plot_spacer(),
-  plot_europe_surface_timeseries(
+    max_plots = 4)
+wind_pred <- plot_europe_surface_timeseries(
     coords = crds,
     data_3d = Y_postmean[,,1:tmax],
     var = 3,
     start_date = "2002-12-01",
     time_unit = "months",
-    max_plots = 9
-  ),
-  ncol = 3
-) +
-  plot_layout(widths = c(1, 0.2, 1))
-dev.off()
+    max_plots = 4)
+# Save high-res PNG with Cairo
+ggsave("plots/copernicus_forecast_wind_true.png", wind_true, dpi = 320, type = "cairo")
+ggsave("plots/copernicus_forecast_wind_pred.png", wind_pred, dpi = 320, type = "cairo")
+
+
 # evps
-width <- 360*6
-height <- 360*3
-pointsize <- 16
-png("plots/copernicus_forecast_evps.png", width = width, height = height, pointsize = pointsize, family = "sans")
-wrap_plots(
-  plot_europe_surface_timeseries(
+evps_true <- plot_europe_surface_timeseries(
     coords = crds,
-    data_3d = spatial_df[train_set,,forecast_set],
+    data_3d = Ys,
     var = 4,
-    start_date = "2012-12-01",
+    start_date = "2002-12-01",
     time_unit = "months",
-    max_plots = 9
-  ),
-  plot_spacer(),
-  plot_europe_surface_timeseries(
+    max_plots = 4)
+evps_pred <- plot_europe_surface_timeseries(
     coords = crds,
-    data_3d = Y_postmean[,,forecast_set],
+    data_3d = Y_postmean[,,1:tmax],
     var = 4,
-    start_date = "2012-12-01",
+    start_date = "2002-12-01",
     time_unit = "months",
-    max_plots = 9
-  ),
-  ncol = 3
-) +
-  plot_layout(widths = c(1, 0.2, 1))
-dev.off()
+    max_plots = 4)
+# Save high-res PNG with Cairo
+ggsave("plots/copernicus_forecast_evps_true.png", evps_true, dpi = 320, type = "cairo")
+ggsave("plots/copernicus_forecast_evps_pred.png", evps_pred, dpi = 320, type = "cairo")
 
 
 # Interpolation evaluation ------------------------------------------------
 
 # IN-SAMPLE
 # Extract predictions
-# Ysp_pred   <- sapply(1:L, function(l){out_SI_i[[l]][1:u,]}   , simplify = "array")
 L <- 200
 Ysp_pred   <- sapply(1:L, function(l){out$spatial$t57[[l]][1:u,]}   , simplify = "array")
 
@@ -566,18 +554,12 @@ sqrt( sq_res ) |> mean()
 colnames(Ysp_postmean) <- colnames(Yu)
 
 # plotting
-width <- 360*4
-height <- 360*2
-pointsize <- 16
-png("plots/copernicus_interpolation_insample.png", width = width, height = height, pointsize = pointsize, family = "sans")
-wrap_plots(
-  plot_europe_surface_variables(coords = crdu, data = Yu, time_point = which(dates_vector == "2007-09-01"), show_titles = F),
-  plot_spacer(),
-  plot_europe_surface_variables(coords = crdu, data = Ysp_postmean, show_titles = F)) + 
-  plot_layout(widths = c(1, 0.2, 1)) + 
-  plot_annotation(title = paste0("Spatial interpolation at time: ", dates_vector[which(dates_vector == "2007-09-01")]),theme = theme(
-    plot.title = element_text(size = 24, face = "bold", hjust = 0.5, vjust = -10)))
-dev.off()
+insample_true <- plot_europe_surface_variables(coords = crdu, data = Yu, time_point = which(dates_vector == "2007-09-01"), show_titles = F)
+insample_pred <- plot_europe_surface_variables(coords = crdu, data = Ysp_postmean, time_point = which(dates_vector == "2007-09-01"), show_titles = F)
+# Save high-res PNG with Cairo
+ggsave("plots/copernicus_interpolation_insample_true.png", insample_true, dpi = 320, type = "cairo")
+ggsave("plots/copernicus_interpolation_insample_pred.png", insample_pred, dpi = 320, type = "cairo")
+
 
 # OUT-OF-SAMPLE
 # Extract predictions
@@ -590,18 +572,12 @@ Ysp_low      <- apply(Ysp_pred, c(1,2), quantile, 0.025)
 sq_res <- (Yu[,,which(dates_vector == "2013-09-01")] - Ysp_postmean)^2
 sqrt( sq_res ) |> mean()
 
-# result visualization
-# plotting
-width <- 360*4
-height <- 360*2
-pointsize <- 16
-png("plots/copernicus_interpolation_outsample.png", width = width, height = height, pointsize = pointsize, family = "sans")
-wrap_plots(
-  plot_europe_surface_variables(coords = crdu, data = Yu, time_point = which(dates_vector == "2013-09-01"), show_titles = F),
-  plot_spacer(),
-  plot_europe_surface_variables(coords = crdu, data = Ysp_postmean, show_titles = F)) + 
-  plot_layout(widths = c(1, 0.2, 1)) + 
-  plot_annotation(title = paste0("Spatial interpolation at time: ", dates_vector[which(dates_vector == "2013-09-01")]),theme = theme(
-    plot.title = element_text(size = 24, face = "bold", hjust = 0.5, vjust = -10)))
-dev.off()
+# naming
+colnames(Ysp_postmean) <- colnames(Yu)
 
+# plotting
+outsample_true <- plot_europe_surface_variables(coords = crdu, data = Yu, time_point = which(dates_vector == "2013-09-01"), show_titles = F)
+outsample_pred <- plot_europe_surface_variables(coords = crdu, data = Ysp_postmean, time_point = which(dates_vector == "2013-09-01"), show_titles = F)
+# Save high-res PNG with Cairo
+ggsave("plots/copernicus_interpolation_outsample_true.png", outsample_true, dpi = 320, type = "cairo")
+ggsave("plots/copernicus_interpolation_outsample_pred.png", outsample_pred, dpi = 320, type = "cairo")
