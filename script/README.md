@@ -5,6 +5,6 @@ The R script collected in this folder allows the entire reproduction of all the 
 * Section 4.1: [`ABF-genfun.R`](ABF-genfun.R), [`ABF-simulation.R`](ABF-simulation.R);
 * Section 4.2: [`MclosedMopen-simulation.R`](MclosedMopen-simulation.R), [`MclosedMopen-graphics.R`](MclosedMopen-graphics.R);
 * Section 5: [`Copernicusdata-analysis.R`](Copernicusdata-analysis.R);
-* Appendix C.1: [`Weightsdynamics-simulation.R`](Weightsdynamics-simulation.R);
-* Appendix D: [`Copernicusdata-eda.R`](Copernicusdata-eda.R);
-* Appendix E: [`ABF-genfun.R`](ABF-genfun.R), [`ABF-simulation.R`](ABF-simulation.R), [`MclosedMopen-simulation.R`](MclosedMopen-simulation.R), [`MclosedMopen-graphics.R`](MclosedMopen-graphics.R), [`Copernicusdata-analysis.R`](Copernicusdata-analysis.R).
+* Supplementary Section 3.1: [`Weightsdynamics-simulation.R`](Weightsdynamics-simulation.R);
+* Supplementary Section 4: [`Copernicusdata-eda.R`](Copernicusdata-eda.R);
+* Supplementary Section 5: [`ABF-genfun.R`](ABF-genfun.R), [`ABF-simulation.R`](ABF-simulation.R), [`MclosedMopen-simulation.R`](MclosedMopen-simulation.R), [`MclosedMopen-graphics.R`](MclosedMopen-graphics.R), [`Copernicusdata-analysis.R`](Copernicusdata-analysis.R).
