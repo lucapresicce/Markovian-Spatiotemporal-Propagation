@@ -10,6 +10,6 @@ However, due to the massive dimensions, raw datasets are not loaded in this fold
 
 ## Case Study Datasets
 
-Introducing now [`copernicus_data.RData`](./data/copernicus_data.RData), and [`copernicus_predictors.RData`](./data/copernicus_predictors.RData), the `.Rdata` objects containing the preprocessed set of outcomes and predictors, respectively, used for the analyses. See both Section 5 and Appendix D for further details. 
+Introducing now [`copernicus_data.RData`](./data/copernicus_data.RData), and [`copernicus_predictors.RData`](./data/copernicus_predictors.RData), the `.Rdata` objects containing the preprocessed set of outcomes and predictors, respectively, used for the analyses. See both Section 5 and Supplementary Section 4 for further details. 
 
 The files here are analysis-ready; it suffices to load them (following the related scripts) to perform the analyses, as explained in the Workflow on the main `README.md`.
