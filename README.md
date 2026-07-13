@@ -73,7 +73,7 @@ Running [`MclosedMopen-simulation.R`](./script/MclosedMopen-simulation.R) produc
 
 In this section are displayed [`plot_theta_C.png`](./plots/plot_theta_C.png), [`plot_theta_O.png`](./plots/plot_theta_O.png), [`plot_omega_C.png`](./plots/plot_omega_C.png), [`plot_omega_O.png`](./plots/plot_omega_O.png), [`plot_sigma.png`](./plots/plot_sigma.png), and [`plot_pred.png`](./plots/plot_pred.png) as Figures, and the contents of 50 replications, collected in `replication_results.Rdata`.
 
-**Note:** The output file `replications_results.RData` is **not included in this repository** because its size exceeds GitHub's 100 MB limit (the file is approximately 210 MB). However, it is **fully reproducible** by running the script [`MclosedMopen-simulation.R`](./script/MclosedMopen-simulation.R). Please be aware that this script may take a **long time to execute**, depending on your system’s resources. If needed, the original `replications_results.RData` file can be provided upon request.
+**Note:** The output file `replications_results.RData` is **not included in this repository** because its size exceeds GitHub's 100 MB limit (the file is approximately 9 GB). However, it is **fully reproducible** by running the script [`MclosedMopen-simulation.R`](./script/MclosedMopen-simulation.R). Please be aware that this script may take a **long time to execute**, depending on your system’s resources. If needed, the original `replications_results.RData` file can be provided upon request.
 
 ### Supplementary Section 3.2 - Space-time weights dynamics
 
