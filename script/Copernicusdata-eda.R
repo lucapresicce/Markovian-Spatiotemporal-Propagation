@@ -292,7 +292,7 @@ ggsave("plots/copernicus_eda_hovmoller_lon.png", final_figure_lon, width = 10.96
 # correlation analysis ----------------------------------------------------
 
 nvars <- q
-varnames <- c("T","R","W","E")
+varnames <- c("MT","R","W","E")
 
 var_pairs <- combn(varnames, 2, simplify = FALSE)
 
