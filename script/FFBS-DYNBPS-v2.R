@@ -191,7 +191,7 @@ compute_Wt_v2 <- function(out_FF, tau, phi,
 #' }
 #'
 #' @export
-spFFBS_v2 <- function(
+spFFBS <- function(
     Y,
     X,
     D,
@@ -309,7 +309,8 @@ spFFBS_v2 <- function(
 
     dt_BS <- proc.time()["elapsed"] - t0
     if (verbose) cat(sprintf("       Done (%.2f s)\n\n", dt_BS))
-    result$BS <- out_BS
+    result$BS <- out_BS$Theta
+    result$Sigma <- out_BS$Sigma
   } else {
     if (verbose) cat("[ 3/4 ] Backward Sampling skipped.\n\n")
   }

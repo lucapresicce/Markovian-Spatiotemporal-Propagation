@@ -359,8 +359,8 @@ static FFResult_v2 forward_filter_v2(
   res.m.rows(0, p - 1)     = a_b + W_top.t() * e;
   res.m.rows(p, p + n - 1) = a_w + A_bot * W_e;
 
-  res.nu  = nu + 0.5 * static_cast<double>(n);
-  arma::mat Psi_new = Psi + 0.5 * (e.t() * W_e);
+  res.nu  = nu + static_cast<double>(n);
+  arma::mat Psi_new = Psi + (e.t() * W_e);
   res.Psi = 0.5 * (Psi_new + Psi_new.t());
 
   res.Q_diag = Q.diag();
@@ -1210,17 +1210,19 @@ Rcpp::List spatial_interpolation_v2(
     double    nu_j   = Rcpp::as<double>(FF_j["nu"]);
     int       n_j    = C_ww_j.n_rows;
     int       np_j   = p + n_j;
-
+    
+    // Propagate state k_fcast steps for out-of-sample t
     if (k_fcast > 0) {
       C_ww_j += static_cast<double>(k_fcast) * Kss;
+      C_bb_j.diag() += static_cast<double>(k_fcast);
     }
-
+    
     arma::mat C_full(np_j, np_j);
     C_full.submat(0, 0, p-1, p-1)         = C_bb_j;
     C_full.submat(0, p, p-1, p+n_j-1)     = C_bw_j;
     C_full.submat(p, 0, p+n_j-1, p-1)     = C_bw_j.t();
     C_full.submat(p, p, p+n_j-1, p+n_j-1) = C_ww_j;
-
+    
     arma::mat zero_up = arma::zeros<arma::mat>(u, p);
     arma::mat chi_t   = arma::join_horiz(
       arma::join_vert(Xu, zero_up),
@@ -1228,17 +1230,17 @@ Rcpp::List spatial_interpolation_v2(
     arma::mat N_t     = arma::join_horiz(
       arma::join_vert(Vtilde + Wtilde, Wtilde),
       arma::join_vert(Wtilde, Wtilde));
-
+    
     arma::mat mu_t = chi_t * m_j;
     arma::mat E_t  = chi_t * C_full * chi_t.t() + N_t;
     E_t = 0.5*(E_t + E_t.t());
-    arma::mat L_E = safe_chol(E_t);
-
+    arma::mat L_E = safe_chol(E_t);  // precomputed once
+    
     models[jj] = {mu_t, L_E, nu_j, Psi_j,
                   static_cast<int>(mu_t.n_rows),
                   static_cast<int>(mu_t.n_cols)};
   }
-
+  
   std::vector<arma::mat> preds(L);
 #ifdef _OPENMP
 #pragma omp parallel for schedule(static) num_threads(num_threads)

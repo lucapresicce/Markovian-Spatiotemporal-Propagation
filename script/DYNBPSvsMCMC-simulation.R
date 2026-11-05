@@ -1,19 +1,16 @@
 #####################################################################
-# AMORTIZED BAYESIAN FORECAST - GENERATIVE FUNCTIONS
+# DYNBPS vs MCMC - COMPUTATIONAL COMPARISON (Supplement, Section S3.1)
 #####################################################################
+# performance of DYNBPS and MCMC for Y_{T+1} and Omega_{T+1}, averaged
+# over 10 replicate datasets, and the average wall-clock time per
+# dataset fit across the replications.
+# -------------------------------------------------------------------
 
 library(mniw)
-library(classInt)
-library(RColorBrewer)
-library(sp)
-library(fields)
 library(parallel)
 library(foreach)
 library(doParallel)
-library(akima)
-library(ggplot2)
 library(abind)
-library(MBA)
 
 # associated packages
 library(spFFBS)
@@ -23,34 +20,36 @@ library(spBPS)
 Rcpp::sourceCpp("script/FFBS-DYNBPS-struct-v2.cpp")
 source("script/FFBS-DYNBPS-v2.R")
 
+set.seed(123)
+
 
 # Data generation ---------------------------------------------------------
 
 tendency_gen <- function(n = 50, q = 2, p = 2, tmax = 10, phi, seed = 42) {
-
+  
   set.seed(42)
   fixed_crd <- matrix(runif(n * 2), ncol = 2)
   Sigma     <- matrix(c(1, -0.3, -0.3, 1), q, q)
   Rphi_val  <- exp(-phi * spBPS:::arma_dist(fixed_crd))
   fixed_W   <- mniw::rMNorm(1, Lambda = matrix(0, n, q),
-                             SigmaR = Rphi_val, SigmaC = Sigma)
-
+                            SigmaR = Rphi_val, SigmaC = Sigma)
+  
   set.seed(seed)
   fixed_crd <- matrix(runif(n * 2), ncol = 2)
-
+  
   D  <- spBPS:::arma_dist(fixed_crd)
   K  <- exp(-phi * D)
   W  <- rbind(cbind(diag(p),       matrix(0, p, n)),
               cbind(matrix(0, n, p), K))
-
+  
   m0  <- matrix(0, n + p, q)
   C0  <- rbind(cbind(diag(0.005, p), matrix(0, p, n)),
                cbind(matrix(0, n, p), K))
   nu0  <- p + 2
   Psi0 <- diag(q)
-
+  
   theta0 <- mniw::rMNorm(n = 1, Lambda = m0, SigmaR = C0, SigmaC = Sigma)
-
+  
   G     <- diag(n + p)
   theta <- array(0, c(n + p, q, tmax + 1))
   set.seed(seed)
@@ -63,60 +62,60 @@ tendency_gen <- function(n = 50, q = 2, p = 2, tmax = 10, phi, seed = 42) {
         mniw::rMNorm(n = 1, Lambda = m0, SigmaR = W, SigmaC = Sigma)
     }
   }
-
+  
   return(list("Theta" = theta, "crd" = fixed_crd, "G" = G))
 }
 
 
 data_gen <- function(n = 50, q = 2, p = 2, tmax = 10, Theta) {
-
+  
   Sigma <- matrix(c(1, -0.3, -0.3, 1), q, q)
   tau   <- 0.8
   a     <- (1 / tau) - 1
   V     <- a * diag(n)
-
+  
   X <- cbind(rep(1, n), matrix(runif((p - 1) * n, -1, 1), ncol = p - 1))
   P <- cbind(X, diag(n))
-
+  
   Y <- array(0, c(n, q, tmax + 1))
   for (t in 1:(tmax + 1)) {
     Y[,, t] <- P %*% Theta[,, t] +
       mniw::rMNorm(n = 1, Lambda = matrix(0, n, q), SigmaR = V, SigmaC = Sigma)
   }
-
+  
   X <- replicate(expr = X, n = tmax + 1)
   P <- abind::abind(X, replicate(expr = diag(n), n = tmax + 1), along = 2)
-
+  
   return(abind::abind(Y, P, along = 2))
 }
 
 
-# Calculate posterior - DYNBPS teacher ------------------------------------
+# Calculate posterior - DYNBPS --------------------------------------------
 
 calculate_post <- function(Z, fixed, q = 2, p = 2, n_threads = 1L) {
-
+  
   n    <- dim(Z)[1]
   tmax <- dim(Z)[3] - 1L
-
+  
   Y       <- Z[, 1:q,         1:tmax,        drop = FALSE]  # n x q x tmax
   X_train <- Z[, (q+1):(q+p), 1:tmax,        drop = FALSE]  # n x p x tmax
   X_all   <- Z[, (q+1):(q+p), ,              drop = FALSE]  # n x p x (tmax+1)
   Xtilde  <- Z[, (q+1):(q+p), tmax + 1L,    drop = FALSE]  # n x p x 1
-
+  
   crd <- fixed$crd
   D   <- spBPS:::arma_dist(crd)
-
+  
   m0   <- matrix(0, n + p, q)
   C0   <- rbind(cbind(diag(0.005, p), matrix(0, p, n)),
                 cbind(matrix(0, n, p), exp(-D)))          # phi=1 for C0
   nu0  <- p + 2L
   Psi0 <- diag(q)
   prior_v2 <- make_prior_v2(m0, C0, nu0 = nu0, Psi0 = Psi0, p = p)
-
+  
   tau_seq <- c(0.7, 0.8, 0.9)
   phi_seq <- c(2, 4, 6)
-
-  out <- spFFBS_v2(
+  
+  out <- spFFBS(
     Y           = Y,
     X           = X_train,
     D           = D,
@@ -139,23 +138,23 @@ calculate_post <- function(Z, fixed, q = 2, p = 2, n_threads = 1L) {
     n_threads = as.integer(n_threads),
     verbose   = FALSE
   )
-
+  
   Ysp_pred   <- out$spatial[[1L]]$Y      # n x q x L
   Omega_pred <- out$spatial[[1L]]$Omega  # n x q x L
-
+  
   Ups_50  <- cbind(apply(Ysp_pred,   c(1,2), mean),
                    apply(Omega_pred, c(1,2), mean))
   Ups_025 <- cbind(apply(Ysp_pred,   c(1,2), quantile, 0.025),
                    apply(Omega_pred, c(1,2), quantile, 0.025))
   Ups_975 <- cbind(apply(Ysp_pred,   c(1,2), quantile, 0.975),
                    apply(Omega_pred, c(1,2), quantile, 0.975))
-
+  
   W <- abind::abind(Ups_50, Ups_025, Ups_975, along = 3)
   return(W)
 }
 
 
-# Calculate posterior - MCMC teacher -------------------------------------
+# Calculate posterior - MCMC ----------------------------------------------
 
 calculate_post_mcmc <- function(Z, fixed, q = 2, p = 2,
                                 n_iter          = 2000L,
@@ -163,23 +162,23 @@ calculate_post_mcmc <- function(Z, fixed, q = 2, p = 2,
                                 L               = 200L,
                                 phi_prior_shape = 2,
                                 phi_prior_rate  = 0.5) {
-
+  
   n    <- dim(Z)[1]
   tmax <- dim(Z)[3] - 1L
-
+  
   Y_train <- Z[, 1:q,         1:tmax, drop = FALSE]   # n x q x tmax
   X_fixed <- Z[, (q+1):(q+p), 1L]                     # n x p (time-invariant)
   P_mat   <- cbind(X_fixed, diag(n))                  # n x (p+n)
-
+  
   crd   <- fixed$crd
   D_loc <- spBPS:::arma_dist(crd)
-
+  
   m0   <- matrix(0, n + p, q)
   nu0  <- p + 2L
   Psi0 <- diag(q)
-
+  
   lgamma_mq_loc <- function(a, q_) sum(lgamma(a - (seq_len(q_) - 1L) / 2))
-
+  
   kf_logml_diag <- function(tau, phi) {
     if (tau <= 0 || tau >= 1 || phi <= 0) return(-1e10)
     tryCatch({
@@ -218,18 +217,18 @@ calculate_post_mcmc <- function(Z, fixed, q = 2, p = 2,
       log_ml
     }, error = function(e) -1e10)
   }
-
+  
   log_post_mc <- function(lt, lp) {
     kf_logml_diag(plogis(lt), exp(lp)) +
       dgamma(exp(lp), shape = phi_prior_shape, rate = phi_prior_rate, log = TRUE)
   }
-
+  
   lt_c     <- qlogis(0.75); lp_c <- log(3)
   lp_c_val <- log_post_mc(lt_c, lp_c)
   chain    <- matrix(NA_real_, n_iter, 2L,
                      dimnames = list(NULL, c("tau", "phi")))
   acc <- 0L; sc <- c(0.15, 0.20)
-
+  
   t0_chain <- proc.time()
   for (it in seq_len(n_iter)) {
     lt_p     <- lt_c + rnorm(1, 0, sc[1])
@@ -245,27 +244,27 @@ calculate_post_mcmc <- function(Z, fixed, q = 2, p = 2,
     }
   }
   time_chain <- (proc.time() - t0_chain)["elapsed"]
-
+  
   post   <- chain[(n_burnin + 1L):n_iter,, drop = FALSE]
   keep   <- sample(nrow(post), L, replace = FALSE)
   tau_dr <- post[keep, "tau"]
   phi_dr <- post[keep, "phi"]
-
+  
   Y_pred_mc  <- array(NA_real_, c(n, q, L))
   Om_pred_mc <- array(NA_real_, c(n, q, L))
-
+  
   t0_pred <- proc.time()
   for (l in seq_len(L)) {
     tau_l <- tau_dr[l]; phi_l <- phi_dr[l]
     a_v_l <- (1 - tau_l) / tau_l
     V_l   <- a_v_l * diag(n)
-
+    
     W_phi_l <- rbind(cbind(diag(p),        matrix(0, p, n)),
                      cbind(matrix(0, n, p), exp(-phi_l * D_loc)))
     C_kf_l  <- rbind(cbind(diag(0.005, p), matrix(0, p, n)),
                      cbind(matrix(0, n, p), exp(-phi_l * D_loc)))
     m_kf_l  <- m0; nu_kf_l <- max(nu0, q + 2L); Psi_kf_l <- Psi0
-
+    
     for (tt in seq_len(tmax)) {
       R_t_l  <- C_kf_l + W_phi_l
       Qt     <- P_mat %*% R_t_l %*% t(P_mat) + V_l
@@ -279,135 +278,235 @@ calculate_post_mcmc <- function(Z, fixed, q = 2, p = 2,
       C_kf_l <- (diag(n + p) - Kt %*% P_mat) %*% R_t_l
       C_kf_l <- (C_kf_l + t(C_kf_l)) / 2
     }
-
+    
     Sig_l <- tryCatch(mniw::riwish(1L, Psi = Psi_kf_l, nu = nu_kf_l),
                       error = function(e) diag(q))
     LcS   <- tryCatch(t(chol(Sig_l + diag(q) * 1e-8)),
                       error = function(e) diag(q))
-
+    
     # One-step-ahead state prior: R_{T+1} = C_T + W_phi
     R_tp1 <- C_kf_l + W_phi_l
     R_tp1 <- (R_tp1 + t(R_tp1)) / 2
     LcR   <- tryCatch(t(chol(R_tp1 + diag(n + p) * 1e-8)),
                       error = function(e) diag(n + p))
-
+    
     Theta_tp1 <- m_kf_l +
       LcR %*% matrix(rnorm((n + p) * q), n + p, q) %*% LcS
-
+    
     Y_tp1_l <- P_mat %*% Theta_tp1 +
       sqrt(a_v_l) * diag(n) %*% matrix(rnorm(n * q), n, q) %*% LcS
-
+    
     Y_pred_mc [,, l] <- Y_tp1_l
     Om_pred_mc[,, l] <- Theta_tp1[(p + 1L):(p + n),, drop = FALSE]
   }
   time_pred <- (proc.time() - t0_pred)["elapsed"]
-
+  
   Ups_50  <- cbind(apply(Y_pred_mc,  c(1,2), mean),
                    apply(Om_pred_mc, c(1,2), mean))
   Ups_025 <- cbind(apply(Y_pred_mc,  c(1,2), quantile, 0.025),
                    apply(Om_pred_mc, c(1,2), quantile, 0.025))
   Ups_975 <- cbind(apply(Y_pred_mc,  c(1,2), quantile, 0.975),
                    apply(Om_pred_mc, c(1,2), quantile, 0.975))
-
+  
   W <- abind::abind(Ups_50, Ups_025, Ups_975, along = 3)
-
+  
   attr(W, "time_chain") <- time_chain
   attr(W, "time_pred")  <- time_pred
   attr(W, "acc_rate")   <- acc / n_iter
-
+  
   return(W)
 }
 
 
-# Plot surface ------------------------------------------------------------
+# 0. parameters -----------------------------------------------------------
 
-theme_paper <- function(base = 14, leg = "none") {
-  theme_bw(base_size = base) %+replace% theme(
-    title             = element_text(size = base + 2, face = "bold"), 
-    strip.text        = element_text(size = base, face = "bold"),
-    strip.background  = element_rect(fill = "#eceff1", colour = "grey70"),
-    # axis.text         = element_text(size = base - 2, face = "bold"),
-    axis.text.x       = element_text(size = base - 2, hjust = 0.5),
-    axis.text.y       = element_text(size = base - 2, hjust = 0.5),
-    axis.title        = element_text(size = base, face = "bold"),
-    axis.title.x      = element_text(size = base, face = "bold"),
-    axis.title.y      = element_text(size = base, face = "bold", angle = 90),
-    legend.text       = element_text(size = base + 2, face = "bold"),
-    legend.title      = element_blank(),
-    legend.key.size   = unit(1.3, "lines"),
-    legend.position   = leg,
-    panel.grid.minor  = element_blank(),
-    panel.grid.major  = element_blank()
+n         <- 250L   # spatial locations
+q         <- 2L     # variables per location
+p         <- 2L     # covariates (intercept + 1)
+t_steps   <- 10L    # time points for fitting; T+1 is prediction target
+n_test    <- 10L    # replicate datasets
+L         <- 200L   # posterior predictive samples per dataset
+N_THREADS <- 5L     # threads for spFFBS (DYNBPS only)
+
+# MCMC settings
+N_ITER_MC   <- 2000L
+N_BURNIN_MC <- 1000L
+
+
+# 1. fixed spatial structure ----------------------------------------------
+
+fixed <- tendency_gen(n = n, q = q, p = p, tmax = t_steps, phi = 4, seed = 42)
+cat(sprintf("Fixed structure generated.  n=%d  q=%d  p=%d  T=%d\n",
+            n, q, p, t_steps))
+
+
+# 2. replicate datasets: DYNBPS and MCMC fits ------------------------------
+
+# Format seconds as hh:mm:ss (used only for the progress line)
+fmt_hms <- function(s) {
+  s <- max(0, round(s))
+  sprintf("%02d:%02d:%02d", s %/% 3600, (s %% 3600) %/% 60, s %% 60)
+}
+
+cat(sprintf("\n--- Fitting DYNBPS and MCMC on %d replicate datasets ---\n", n_test))
+cat(sprintf("  MCMC settings: n_iter=%d  n_burnin=%d  L=%d\n",
+            N_ITER_MC, N_BURNIN_MC, L))
+
+set.seed(1995)
+X_test_list   <- vector("list", n_test)
+Z_test_bps    <- vector("list", n_test)
+Z_test_mc     <- vector("list", n_test)
+time_bps_each <- numeric(n_test)
+time_mc_each  <- numeric(n_test)
+
+t_start <- proc.time()
+cat(sprintf("\r  [%-20s] %2d/%d | elapsed %s | ETA -- | end ~--   ",
+            "", 0L, n_test, fmt_hms(0)))
+flush.console()
+
+for (i in seq_len(n_test)) {
+  X_test_list[[i]] <- data_gen(n = n, q = q, p = p,
+                               tmax = t_steps, Theta = fixed$Theta)
+  
+  # DYNBPS fit (timed)
+  t0 <- proc.time()
+  Z_test_bps[[i]]  <- calculate_post(X_test_list[[i]], fixed,
+                                     q = q, p = p, n_threads = N_THREADS)
+  time_bps_each[i] <- (proc.time() - t0)["elapsed"]
+  
+  # MCMC fit (timed)
+  t0 <- proc.time()
+  Z_test_mc[[i]]   <- calculate_post_mcmc(X_test_list[[i]], fixed,
+                                          q = q, p = p,
+                                          n_iter   = N_ITER_MC,
+                                          n_burnin = N_BURNIN_MC,
+                                          L        = L)
+  time_mc_each[i]  <- (proc.time() - t0)["elapsed"]
+  
+  # Progress line, updated in place
+  elapsed <- (proc.time() - t_start)["elapsed"]
+  eta     <- elapsed / i * (n_test - i)
+  cat(sprintf("\r  [%-20s] %2d/%d | elapsed %s | ETA %s | end ~%s   ",
+              strrep("=", round(20 * i / n_test)), i, n_test,
+              fmt_hms(elapsed), fmt_hms(eta),
+              format(Sys.time() + eta, "%H:%M")))
+  flush.console()
+}
+cat("\n")
+
+time_bps_mean <- mean(time_bps_each)
+time_mc_mean  <- mean(time_mc_each)
+
+
+# 3. metrics --------------------------------------------------------------
+
+# Ground truth at T+1
+Y_true_all  <- sapply(X_test_list, function(Xi) Xi[, 1:q, t_steps + 1L],
+                      simplify = "array")
+Om_true_all <- replicate(n_test, fixed$Theta[(p+1L):(p+n),, t_steps + 1L])
+
+# Metric helpers
+rmspe_q    <- function(c, y) {sqrt(mean((c - y)^2))}
+coverage_q <- function(lo, hi, y) {mean(y >= lo & y <= hi)}
+IS95_q     <- function(lo, hi, y, a = 0.05) {
+  mean((hi - lo) + (2/a) * (pmax(lo - y, 0) + pmax(y - hi, 0)))
+}
+
+results <- data.frame()
+for (i in seq_len(n_test)) {
+  Y_true  <- Y_true_all[,, i]
+  Om_true <- Om_true_all[,, i]
+  
+  for (tgt in c("Y", "Omega")) {
+    cols <- if (tgt == "Y") 1:q else (q + 1):(2 * q)
+    y_t  <- if (tgt == "Y") Y_true else Om_true
+    for (mth in c("DYNBPS", "MCMC")) {
+      W_m <- switch(mth,
+                    DYNBPS = Z_test_bps[[i]],
+                    MCMC   = Z_test_mc[[i]])
+      results <- rbind(results, data.frame(
+        Dataset  = i, Method = mth, Target = tgt,
+        RMSPE    = rmspe_q(W_m[, cols, 1], y_t),
+        Coverage = coverage_q(W_m[, cols, 2], W_m[, cols, 3], y_t),
+        IS95     = IS95_q(W_m[, cols, 2], W_m[, cols, 3], y_t)
+      ))
+    }
+  }
+}
+
+
+# 4. metrics table (Table S1) ---------------------------------------------
+
+agg <- aggregate(cbind(RMSPE, Coverage, IS95) ~ Method + Target,
+                 data = results, FUN = mean)
+
+agg_Y  <- agg[agg$Target == "Y",     c("Method", "RMSPE", "Coverage", "IS95")]
+agg_Om <- agg[agg$Target == "Omega", c("Method", "RMSPE", "Coverage", "IS95")]
+names(agg_Y)  <- c("Method", "Y_RMSPE",  "Y_Cov95",  "Y_IS95")
+names(agg_Om) <- c("Method", "Om_RMSPE", "Om_Cov95", "Om_IS95")
+
+tbl <- merge(agg_Y, agg_Om, by = "Method")
+
+# Average wall-clock time per dataset fit across the replications
+tbl$Time_sec <- c(DYNBPS = time_bps_mean,
+                  MCMC   = time_mc_mean)[tbl$Method]
+
+row_order <- c("DYNBPS", "MCMC")
+tbl <- tbl[match(row_order, tbl$Method),]
+
+# Same column order as Table S1: RMSPE, Coverage, IS (Y then Omega), Time
+cat("\n")
+cat(sprintf("%-8s | %7s %7s | %7s %7s | %7s %7s | %9s\n",
+            "Method", "RMSPE_Y", "RMSPE_O", "Cov_Y", "Cov_O",
+            "IS_Y", "IS_O", "Time(s)"))
+cat(strrep("-", 76), "\n")
+for (r in seq_len(nrow(tbl))) {
+  cat(sprintf("%-8s | %7.3f %7.3f | %7.3f %7.3f | %7.3f %7.3f | %9.1f\n",
+              tbl$Method[r],
+              tbl$Y_RMSPE[r], tbl$Om_RMSPE[r],
+              tbl$Y_Cov95[r], tbl$Om_Cov95[r],
+              tbl$Y_IS95[r],  tbl$Om_IS95[r],
+              tbl$Time_sec[r]))
+}
+cat(strrep("-", 76), "\n")
+
+cat("\n=== Average wall-clock time per dataset fit ===\n")
+cat(sprintf("  DYNBPS : %.1f sec\n", time_bps_mean))
+cat(sprintf("  MCMC   : %.1f sec  (%.1fx slower)\n",
+            time_mc_mean, time_mc_mean / time_bps_mean))
+
+
+# 5. saving results -------------------------------------------------------
+
+comparison_data <- list(
+  X_test_list = X_test_list,
+  Z_test_bps  = Z_test_bps,
+  Z_test_mc   = Z_test_mc,
+  results     = results,
+  table       = tbl,
+  settings = list(
+    n_test      = n_test,
+    n           = n,
+    q           = q,
+    p           = p,
+    t_steps     = t_steps,
+    fixed       = fixed,
+    N_ITER_MC   = N_ITER_MC,
+    N_BURNIN_MC = N_BURNIN_MC,
+    L           = L,
+    N_THREADS   = N_THREADS
+  ),
+  timing = list(
+    time_bps_each = time_bps_each,
+    time_bps_mean = time_bps_mean,
+    time_mc_each  = time_mc_each,
+    time_mc_mean  = time_mc_mean
   )
-}
+)
 
-plot_surface_interp <- function(mat, fixed_crd, title = NULL,
-                                component = 1,
-                                grid_res = 200,
-                                limits = NULL) {
+saveRDS(
+  comparison_data,
+  file     = "data/dynbps_vs_mcmc.rds"
+)
 
-  vals <- mat[, component]
-
-  x_seq <- seq(0, 1, length.out = grid_res)
-  y_seq <- seq(0, 1, length.out = grid_res)
-  
-  interp_result <- with(
-    data.frame(x = fixed_crd[, 1],
-               y = fixed_crd[, 2],
-               z = vals),
-    interp(x, y, z,
-           xo = x_seq,
-           yo = y_seq,
-           duplicate = "mean")
-  )
-
-  df_grid <- data.frame(
-    x     = rep(interp_result$x, times = length(interp_result$y)),
-    y     = rep(interp_result$y, each  = length(interp_result$x)),
-    value = as.vector(interp_result$z))
-
-  ggplot(df_grid, aes(x = x, y = y, fill = value)) +
-    geom_raster() +
-    scale_fill_gradientn(
-      colours = rev(RColorBrewer::brewer.pal(11, "RdBu")),
-      limits = limits
-    ) +
-    coord_equal(expand = F, clip = "on") +
-    ggtitle(title) +
-    labs(x = "Easting", y = "Northing") +
-    theme_paper(leg = "right")
-}
-
-plot_surface_mba <- function(mat, fixed_crd,
-                             title        = NULL,
-                             component    = 1,
-                             grid_res     = 500,
-                             limits       = NULL,
-                             legend_label = NULL) {
-  
-  xyz <- data.frame(x = fixed_crd[, 1],
-                    y = fixed_crd[, 2],
-                    z = mat[, component])
-  
-  fit  <- MBA::mba.surf(xyz, no.X = grid_res, no.Y = grid_res, extend = TRUE)
-  grid <- expand.grid(x = fit$xyz.est$x, y = fit$xyz.est$y)
-  grid$z <- as.vector(fit$xyz.est$z)
-  
-  ggplot(grid, aes(x, y, fill = z)) +
-    geom_raster(na.rm = TRUE) +
-    scale_fill_gradientn(
-      colours = rev(RColorBrewer::brewer.pal(11, "RdBu")),
-      limits  = limits,
-      oob     = scales::squish,
-      guide   = guide_colorbar(
-        title          = legend_label,
-        title.position = "top",
-        title.hjust    = 0.5
-      )
-    ) +
-    coord_fixed(ratio = 1, clip = "on") + 
-    ggtitle(title) +
-    labs(x = "Easting", y = "Northing") +
-    theme_paper(leg = "right") +
-    theme(legend.title = element_text())
-}
+# results <- readRDS("data/dynbps_vs_mcmc.rds")

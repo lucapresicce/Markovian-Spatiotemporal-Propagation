@@ -69,7 +69,7 @@ m0    <- matrix(0, n + p, q)
 C0    <- rbind(cbind(diag(0.005, p), matrix(0, p, n)),
                cbind(matrix(0, n, p), exp(-Ds)))
 prior <- list(m = m0, C = C0, nu = 3, Psi = diag(q))
-L     <- 200
+L     <- 250
 
 y_true_fcst <- spatial_df[train_idx, , forecast_id]   # n x q x h
 
@@ -305,9 +305,6 @@ print_met <- function(tag, mT, mS, secs) {
 
 # 5. DYNBPS ---------------------------------------------------------------
 
-Rcpp::sourceCpp("script/FFBS-DYNBPS-struct-v2.cpp")
-source("script/FFBS-DYNBPS-v2.R")
-
 # load variogram-informed grid
 load("data/variogram_informed_grid.Rdata")
 par_grid <- spBPS:::expand_grid_cpp(rev(tau_seq), rev(phi_seq))
@@ -316,11 +313,11 @@ J        <- nrow(par_grid)
 sp_pred_idx <- c(sp_is, sp_is+sp_os)
 
 cat(">>> [1/5] DYNBPS...\n"); t0 <- proc.time(); set.seed(42)
-out_DYN <- spFFBS_v2(
+out_DYN <- spFFBS::spFFBS(
   Y = Ys, X = Xs, X_all = design_matrix[train_idx, , ], D = Ds,
   grid    = list(tau = tau_seq, phi = phi_seq),
   prior   = prior, L = L,
-  do_BS   = TRUE, do_forecast = TRUE, do_spatial = TRUE, tnew = h,
+  do_BS   = FALSE, do_forecast = TRUE, do_spatial = TRUE, tnew = h,
   spatial = list(crd = crds, crdtilde = crdu, Xtilde = Xu[, , sp_pred_idx], t = sp_pred_idx),
   n_threads = 5L)
 time_DYN <- (proc.time() - t0)["elapsed"]
@@ -334,6 +331,115 @@ met_DYN_S <- compute_metrics(y_true_sp_all, Ysp_DYN_all)
 ph_DYN    <- metrics_by_h( "DYNBPS", y_true_fcst, Y_fcst_DYN)
 ps_DYN    <- metrics_by_sp("DYNBPS", y_true_sp_all, Ysp_DYN_all)
 print_met("DYNBPS", met_DYN_T, met_DYN_S, time_DYN)
+
+
+# 5.0 ablations helpers ---------------------------------------------------
+
+Rcpp::sourceCpp("script/FFBS-DYNBPS-struct-v2.cpp")
+source("script/FFBS-DYNBPS-v2.R")
+
+FF_DYN <- out_DYN$FF
+D_u    <- as.matrix(dist(crdu))
+D_us   <- spBPS:::arma_dist(rbind(crdu, crds))[seq_len(u), -seq_len(u)]
+
+dens_list <- lapply(seq(2L, tmax), function(s) FF_DYN[[s]]$density_evaluations)
+log_dens  <- do.call(rbind, dens_list)
+
+proc_SI <- function(raw) {
+  arr <- array(vapply(raw, as.numeric, numeric(2L * u * q)), c(2L * u, q, L))
+  arr[seq_len(u), , ]
+}
+
+reseed_all <- function(seed) {
+  set.seed(seed)                  
+  s <- runif(2)                   
+  spFFBS:::seed_rng_v2(s[1], s[2])
+  seed_rng_v2(s[1], s[2])         
+  set.seed(seed)                  
+}
+
+run_ablation <- function(Wmat, seed = 42L) {
+  reseed_all(seed)
+  TF <- temporal_forecast_v2(
+    G_beta = diag(p), rho = 1.0, D = Ds,
+    par_grid = par_grid, ForwFilt = FF_DYN,
+    X_all = design_matrix[train_idx, , ], weights = Wmat,
+    horiz = as.integer(h), L = as.integer(L), num_threads = 5L)
+  Y_pred <- abind::abind(TF, along = 4L)
+  Y_fcst <- Y_pred[, , , -(1:tmax), drop = FALSE]
+  
+  make_Wsp <- function(t_eff) {
+    t_eff  <- min(t_eff, tmax)
+    w_init <- matrix(1.0 / J, J, 1L)
+    if (t_eff == 1L) return(w_init)
+    cbind(w_init, Wmat[, seq_len(t_eff - 1L), drop = FALSE])
+  }
+  
+  reseed_all(seed + 1L)
+  Ysp <- simplify2array(lapply(sp_pred_idx, function(t_k)
+    proc_SI(spatial_interpolation_v2(
+      G_beta = diag(p), rho = 1.0, Xu = Xu[, , t_k],
+      D_s = Ds, D_u = D_u, D_us = D_us,
+      par_grid = par_grid, ForwFilt = FF_DYN,
+      weights = make_Wsp(t_k),
+      t = as.integer(t_k), L = as.integer(L), num_threads = 5L))))
+  
+  list(Y_fcst = Y_fcst, Ysp = Ysp)
+}
+
+# 5.1 Equal Weights (EqW) -------------------------------------------------
+
+cat("\n>>> [EqW] Equal Weights...\n"); t0 <- proc.time()
+
+W_EqW   <- matrix(1.0 / J, J, tmax - 1L)
+res_EqW <- run_ablation(W_EqW)
+time_EqW <- (proc.time() - t0)["elapsed"]
+
+met_EqW_T <- compute_metrics(y_true_fcst,   res_EqW$Y_fcst)
+met_EqW_S <- compute_metrics(y_true_sp_all, res_EqW$Ysp)
+ph_EqW    <- metrics_by_h( "EqW", y_true_fcst,   res_EqW$Y_fcst)
+ps_EqW    <- metrics_by_sp("EqW", y_true_sp_all, res_EqW$Ysp)
+print_met("EqW", met_EqW_T, met_EqW_S, time_EqW)
+rm(res_EqW); gc()
+
+
+# 5.2 Static Weights (StW) ------------------------------------------------
+
+cat("\n>>> [StW] Static Weights...\n"); t0 <- proc.time()
+
+w_raw     <- optimize_weights_proj_v2(exp(log_dens), lr = 1e-3, max_iter = 500L)
+w_StW     <- w_raw / sum(w_raw)
+W_StW     <- matrix(rep(w_StW, tmax - 1L), nrow = J)
+res_StW   <- run_ablation(W_StW)
+time_StW  <- (proc.time() - t0)["elapsed"]
+
+met_StW_T <- compute_metrics(y_true_fcst,   res_StW$Y_fcst)
+met_StW_S <- compute_metrics(y_true_sp_all, res_StW$Ysp)
+ph_StW    <- metrics_by_h( "StW", y_true_fcst,   res_StW$Y_fcst)
+ps_StW    <- metrics_by_sp("StW", y_true_sp_all, res_StW$Ysp)
+print_met("StW", met_StW_T, met_StW_S, time_StW)
+rm(res_StW); gc()
+
+
+# 5.3 Top Model Selection (TMS) -------------------------------------------
+
+cat("\n>>> [TMS] Top Model Selection...\n"); t0 <- proc.time()
+
+W_TMS <- matrix(0.0, J, tmax - 1L)
+for (s in seq_along(dens_list)) {
+  j_stars <- apply(dens_list[[s]], 1, which.max)
+  cnt     <- tabulate(j_stars, nbins = J)
+  W_TMS[which.max(cnt), s] <- 1
+}
+res_TMS  <- run_ablation(W_TMS)
+time_TMS <- (proc.time() - t0)["elapsed"]
+
+met_TMS_T <- compute_metrics(y_true_fcst,   res_TMS$Y_fcst)
+met_TMS_S <- compute_metrics(y_true_sp_all, res_TMS$Ysp)
+ph_TMS    <- metrics_by_h( "TMS", y_true_fcst,   res_TMS$Y_fcst)
+ps_TMS    <- metrics_by_sp("TMS", y_true_sp_all, res_TMS$Ysp)
+print_met("TMS", met_TMS_T, met_TMS_S, time_TMS)
+rm(res_TMS); gc()
 
 
 # 6. EB -------------------------------------------------------------------
@@ -381,7 +487,7 @@ code_nm <- nimbleCode({
   tau        ~ dunif(0.001, 0.9999)
   phi        ~ T(dgamma(2, 5), 0.01, 10)
   log_ml_val <- mniw_ml_nf(tau, phi)
-  zeros[1]   ~ dpois(-log_ml_val)
+  zeros[1]   ~ dpois(1e7-log_ml_val)
 })
 model_nm  <- nimbleModel(code_nm, data = list(zeros = 0L),
                          inits = list(tau = tau_EB, phi = max(phi_EB, 0.05)),
@@ -429,21 +535,25 @@ K_eof <- 10
 
 Ymat_full  <- matrix(0, N * q, tmax)
 for (i in 1:tmax) Ymat_full[, i] <- as.numeric(spatial_df[, , i])
-Ymean_full <- rowMeans(Ymat_full)
-sv         <- svd(Ymat_full - Ymean_full, nu = K_eof, nv = K_eof)
-U_eof_full <- sv$u                              # (N*q) x K
-sc_eof     <- diag(sv$d[1:K_eof]) %*% t(sv$v)  # K x tmax
+
+train_rows_eof <- as.integer(outer(train_idx, (0:(q-1)) * N, "+"))
+Ytr_eof        <- Ymat_full[train_rows_eof, ]
+
+Ymean_tr <- rowMeans(Ytr_eof)
+sv       <- svd(Ytr_eof - Ymean_tr, nu = K_eof, nv = K_eof)
+U_tr     <- sv$u                                 # (n*q) x K
+sc_eof   <- diag(sv$d[1:K_eof]) %*% t(sv$v)      # K x tmax
 
 cat(sprintf("  EOF variance explained: %.1f%%\n",
             100 * sum(sv$d[1:K_eof]^2) / sum(sv$d^2)))
 
-train_rows_eof <- as.integer(outer(train_idx, (0:(q-1)) * N, "+"))
-test_rows_eof  <- as.integer(outer(test_idx,  (0:(q-1)) * N, "+"))
-
-U_tr     <- U_eof_full[train_rows_eof, ]   # (n*q) x K
-U_te     <- U_eof_full[test_rows_eof,  ]   # (u*q) x K
-Ymean_tr <- Ymean_full[train_rows_eof]     # n*q
-Ymean_te <- Ymean_full[test_rows_eof]      # u*q
+Dfe  <- as.matrix(dist(rbind(crds, crdu)))
+Kfe  <- exp(-phi_EB * Dfe)
+K11e <- Kfe[1:n, 1:n]; diag(K11e) <- diag(K11e) + 1e-6
+Ake  <- t(Kfe[1:n, (n + 1):(n + u)]) %*% chol2inv(chol(K11e))   # u x n
+blk  <- function(v) ((v - 1) * n + 1):(v * n)
+U_te     <- do.call(rbind, lapply(1:q, function(v) Ake %*% U_tr[blk(v), ]))
+Ymean_te <- unlist(lapply(1:q, function(v) as.numeric(Ake %*% Ymean_tr[blk(v)])))
 
 U_krow <- matrix(0, K_eof, n)
 for (k in 1:K_eof) U_krow[k, ] <- rowSums(matrix(U_tr[, k], n, q))
@@ -457,17 +567,17 @@ for (tt_i in 1:tmax) Xproj_tr[, , tt_i] <- U_krow %*% Xs[, , tt_i]
 Xproj_fc <- array(0, c(K_eof, p, h))
 for (hh in 1:h) Xproj_fc[, , hh] <- U_krow %*% design_matrix[train_idx, , tmax + hh]
 
-mniw_kf_eof <- function(tau, t_end = tmax) {
+mniw_kf_eof <- function(tau, w, t_end = tmax) {
   a_v <- 1 / tau - 1
   V_K <- diag(K_eof) * a_v + diag(K_eof) * 1e-6
-  C0K <- rbind(cbind(diag(0.005, p),    matrix(0, p, K_eof)),
+  C0K <- rbind(cbind(diag(0.005, p),      matrix(0, p, K_eof)),
                cbind(matrix(0, K_eof, p), diag(K_eof)))
   m <- matrix(0, K_eof + p, 1); C <- C0K
   nu <- 3L; Psi <- matrix(1); log_ml <- 0
   for (tt_i in 1:t_end) {
     Pt  <- cbind(Xproj_tr[, , tt_i], diag(K_eof))
     Yt  <- matrix(sc_eof[, tt_i], K_eof, 1)
-    a_t <- m; R_t <- C
+    a_t <- m; R_t <- C + diag(w, K_eof + p)
     f_t <- Pt %*% a_t; Q_t <- Pt %*% R_t %*% t(Pt) + V_K
     Qc  <- tryCatch(chol(Q_t + diag(K_eof) * 1e-10), error = function(e) diag(K_eof))
     Qi  <- chol2inv(Qc); e_t <- Yt - f_t
@@ -486,11 +596,32 @@ mniw_kf_eof <- function(tau, t_end = tmax) {
   list(m = m, C = C, nu = nu, Psi = Psi, log_ml = log_ml)
 }
 
-opt_eof <- optim(0, function(par) { tau <- plogis(par) * 0.9999 + 1e-5
--mniw_kf_eof(tau)$log_ml }, method = "Brent", lower = -6, upper = 6)
-tau_eof <- plogis(opt_eof$par) * 0.9999 + 1e-5
-kf_eof  <- mniw_kf_eof(tau_eof, tmax)
-cat(sprintf("  EOF: tau=%.4f\n", tau_eof))
+nll_eof <- function(par) {
+  v <- -mniw_kf_eof(plogis(par[1]) * 0.9999 + 1e-5, exp(par[2]))$log_ml
+  if (is.finite(v)) v else 1e10
+}
+opt_eof <- optim(c(0, log(1e-3)), nll_eof, method = "L-BFGS-B",
+                 lower = c(-6, log(1e-8)), upper = c(6, log(10)))
+tau_eof <- plogis(opt_eof$par[1]) * 0.9999 + 1e-5
+w_eof   <- exp(opt_eof$par[2])
+kf_eof  <- mniw_kf_eof(tau_eof, w_eof, tmax)
+cat(sprintf("  EOF: tau=%.4f  w=%.2e\n", tau_eof, w_eof))
+
+res_sd <- sd(as.numeric(Ytr_eof - Ymean_tr - U_tr %*% sc_eof))
+
+set.seed(1)
+val_i <- sample(n, round(0.2 * n)); fit_i <- setdiff(1:n, val_i)
+rows_v <- function(idx) as.integer(outer(idx, (0:(q-1)) * n, "+"))
+Ktr <- exp(-phi_EB * as.matrix(dist(crds)))
+Av  <- Ktr[val_i, fit_i] %*% chol2inv(chol(Ktr[fit_i, fit_i] + diag(1e-6, length(fit_i))))
+mf  <- rowMeans(Ytr_eof[rows_v(fit_i), ])
+svf <- svd(Ytr_eof[rows_v(fit_i), ] - mf, nu = K_eof, nv = K_eof)
+Uf  <- svf$u; scf <- diag(svf$d[1:K_eof]) %*% t(svf$v)
+blkf <- function(v) ((v - 1) * length(fit_i) + 1):(v * length(fit_i))
+Uv  <- do.call(rbind, lapply(1:q, function(v) Av %*% Uf[blkf(v), ]))
+mv  <- unlist(lapply(1:q, function(v) as.numeric(Av %*% mf[blkf(v)])))
+res_sd_sp <- sd(as.numeric(Ytr_eof[rows_v(val_i), ] - mv - Uv %*% scf))
+cat(sprintf("  EOF residual sd: temporal=%.3f  spatial=%.3f\n", res_sd, res_sd_sp))
 
 LcC_eof <- tryCatch(t(chol(kf_eof$C + diag(K_eof + p) * 1e-8)),
                     error = function(e) diag(K_eof + p))
@@ -499,27 +630,36 @@ set.seed(42)
 Y_fcst_EOF  <- array(0, c(n, q, L, h))
 Ysp_EOF_all <- array(0, c(u, q, L, T_sp))
 
+a_v_eof <- 1 / tau_eof - 1
+
 for (l in 1:L) {
-  sig2_l <- 1 / rgamma(1, shape = kf_eof$nu / 2,
-                       rate  = as.numeric(kf_eof$Psi) / 2)
+  sig2_l <- 1 / rgamma(1, shape = kf_eof$nu / 2, rate = as.numeric(kf_eof$Psi) / 2)
   sd_l   <- sqrt(sig2_l)
   W_T_l  <- kf_eof$m + sd_l * (LcC_eof %*% rnorm(K_eof + p))
-  B_K_l  <- W_T_l[1:p]
-  xi_T_l <- W_T_l[(p + 1):(p + K_eof)]
   
-  # Temporal forecast: reconstruct via training rows of U
+  # Temporal forecast
+  W_cur <- W_T_l
   for (hh in 1:h) {
-    s_hat <- as.numeric(Xproj_fc[, , hh] %*% B_K_l) + xi_T_l
-    Y_fcst_EOF[, , l, hh] <- matrix(as.numeric(U_tr %*% s_hat) + Ymean_tr, n, q)
+    W_cur <- W_cur + sd_l * sqrt(w_eof) * rnorm(K_eof + p)
+    s_hat <- as.numeric(Xproj_fc[, , hh] %*% W_cur[1:p]) + W_cur[(p + 1):(p + K_eof)] +
+      sd_l * sqrt(a_v_eof) * rnorm(K_eof)
+    Y_fcst_EOF[, , l, hh] <- matrix(as.numeric(U_tr %*% s_hat) + Ymean_tr, n, q) +
+      sweep(matrix(rnorm(n * q), n, q), 2, res_sd, "*")
   }
   
-  # Spatial: reconstruct via test rows of U - no external interpolation
+  # Spatial
   for (k_ in 1:T_sp) {
-    t_k <- if (k_ == 1) tmax else tmax + sp_os[k_ - 1]
-    Xp  <- U_krow_test %*% design_matrix[test_idx, , t_k]   # K x p
-    s_k <- as.numeric(Xp %*% B_K_l) + xi_T_l
+    if (k_ == 1) {
+      s_k <- sc_eof[, tmax]
+    } else {
+      t_k <- tmax + sp_os[k_ - 1]
+      W_k <- W_T_l + sd_l * sqrt(w_eof * sp_os[k_ - 1]) * rnorm(K_eof + p)
+      Xp  <- U_krow_test %*% design_matrix[test_idx, , t_k]
+      s_k <- as.numeric(Xp %*% W_k[1:p]) + W_k[(p + 1):(p + K_eof)] +
+        sd_l * sqrt(a_v_eof) * rnorm(K_eof)
+    }
     Ysp_EOF_all[, , l, k_] <- matrix(as.numeric(U_te %*% s_k) + Ymean_te, u, q) +
-      matrix(rnorm(u * q, 0, sd_l), u, q)
+      sweep(matrix(rnorm(u * q), u, q), 2, res_sd_sp, "*")
   }
 }
 time_EOF <- (proc.time() - t0_eof)["elapsed"]
@@ -638,10 +778,10 @@ if (!has_inla) {
 
 # 10. tables --------------------------------------------------------------
 
-method_names <- c("DYNBPS", "EB-static", "MCMC", "EOF+DLM", "INLA-multiv")
-mets_T  <- list(met_DYN_T, met_EB_T, met_NM_T, met_EOF_T, met_IM_T)
-mets_S  <- list(met_DYN_S, met_EB_S, met_NM_S, met_EOF_S, met_IM_S)
-times_s <- c(time_DYN, time_EB, time_NM, time_EOF, time_IM)
+method_names <- c("DYNBPS", "EqW", "StW", "TMS", "EB-static", "MCMC", "EOF+DLM", "INLA-multiv")
+mets_T  <- list(met_DYN_T, met_EqW_T, met_StW_T, met_TMS_T, met_EB_T, met_NM_T, met_EOF_T, met_IM_T)
+mets_S  <- list(met_DYN_S, met_EqW_S, met_StW_S, met_TMS_S, met_EB_S, met_NM_S, met_EOF_S, met_IM_S)
+times_s <- c(time_DYN, time_EqW, time_StW, time_TMS, time_EB, time_NM, time_EOF, time_IM)
 
 gf <- function(m, f) if (!is.null(m)) round(m[[f]], 5) else NA
 

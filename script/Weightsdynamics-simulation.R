@@ -17,39 +17,10 @@ library(ggplot2)
 library(deldir)
 library(scales)
 library(patchwork)
-# 
-# # Working cpp functions
-# Rcpp::sourceCpp("Rcpp/FFBS.cpp")
-# Rcpp::sourceCpp("Rcpp/FFBS-BPS.cpp")
-# Rcpp::sourceCpp("Rcpp/FFBS-parallel.cpp")
-# Rcpp::sourceCpp("Rcpp/FFBS-prediction.cpp")
-# Rcpp::sourceCpp("Rcpp/FFBS-parallel3.cpp")
-# Rcpp::sourceCpp("Rcpp/FFBS-parallel-weights.cpp")
-# 
-# # Working R function
-# compute_Wt <- function(out_FF, t, n, tau_seq, phi_seq) {
-#   
-#   cat("Computing Dynamic Bayesian Predictive Stacking Weights ...\n")
-#   tictoc::tic()
-#   
-#   # Parallel computing over n
-#   Wi <- foreach(i = 1:n, .combine = "rbind", .packages = "spBPS") %dopar% {
-#     epd_i <- sapply(2:t, function(a) out_FF[[a]]$density_evaluations[i, ])
-#     Wi_i <- spBPS::conv_opt(scores = exp(t(epd_i)))
-#     # Wi_i <- optimize_weights_proj(scores = exp(t(epd_i)))
-#     t(Wi_i)  # Ensure row structure
-#   }
-#   J <- ncol(Wi)
-#   colnames(Wi) <- paste0(1:J, " - ", rev(tau_seq), ", " , rev(phi_seq))
-#   tictoc::toc()
-#   
-#   # Weights
-#   return(Wi)
-# }
 
 # Associated R package
-# devtools::install_github("lucapresicce/spFFBS") # if not previously installed
-library(spFFBS)
+Rcpp::sourceCpp("script/FFBS-DYNBPS-struct-v2.cpp")
+source("script/FFBS-DYNBPS-v2.R")
 library(spBPS)
 
 # Data Simulation ---------------------------------------------------------
@@ -61,6 +32,7 @@ q    <- 3
 p    <- 2
 
 # Coordinates and true parameters
+set.seed(4-8-15-16-23-42)
 crd <- matrix(runif((n)*2), (n), 2)
 D   <- as.matrix(dist(crd))
 phi <- 4
@@ -134,7 +106,7 @@ Wtemp <- array(1/J, c(n, J, tmax))
 tictoc::tic()
 for (t in 2:tmax) {
   density_list <- lapply(2:t, function(tt) out$FF[[tt]]$density_evaluations)
-  Wi <- spFFBS:::compute_Wt_cpp(density_list, n = n, t = t, lr = 0.05, max_iter = 500, n_threads = 1)
+  Wi <- spFFBS:::compute_Wt_cpp_v2(density_list, n = n, t = t, lr = 0.05, max_iter = 500, n_threads = 1)
   Wtemp[,,t] <- Wi
 }
 tictoc::toc()
@@ -174,7 +146,7 @@ df_cons <- as.data.frame(t(Wcons_dyn)) %>%
   pivot_longer(-Component, names_to = "Time", values_to = "Weight") %>%
   mutate(Type = "W consensus")
 df_all <- bind_rows(df_global, df_cons) %>%
-  mutate(Time = as.numeric(gsub("V", "", Time)))  # assuming default colnames are V1, V2, ...
+  mutate(Time = as.numeric(gsub("V", "", Time)))
 pal <- brewer.pal(J, "Paired")
 
 # Plot
@@ -189,11 +161,6 @@ weigth_dyn_plot <- ggplot(df_all, aes(x = Time, y = Weight, color = Component)) 
     legend.position = "right",
     legend.title = element_text(face = "bold"),
     panel.grid = element_blank(),
-    # legend.position = "right",
-    # legend.title = element_text(face = "bold", size = 14),
-    # legend.text = element_text(face = "bold", size = 12),
-    # legend.key = element_rect(fill = "white", color = NA),
-    # legend.background = element_rect(fill = "gray95", color = "gray80"),
     axis.text.x = element_text(angle = 45, hjust = 1),
     strip.text = element_text(face = "bold")
   )
@@ -291,10 +258,6 @@ bar_plot <- ggplot(bar_data, aes(x = Model, y = MeanWeight, fill = Model)) +
   theme_bw(base_size = 14) +
   theme(
     legend.position = "none",
-    # legend.title = element_text(face = "bold", size = 14),
-    # legend.text = element_text(face = "bold", size = 12),
-    # legend.key = element_rect(fill = "white", color = NA),
-    # legend.background = element_rect(fill = "gray95", color = "gray80"),
     legend.title = element_text(face = "bold"),
     axis.text = element_text(color = "black"),
     panel.grid = element_blank(),
@@ -303,8 +266,6 @@ bar_plot <- ggplot(bar_data, aes(x = Model, y = MeanWeight, fill = Model)) +
   )
 
 # combine
-# combined_plot <- voronoi_plot + bar_plot + plot_layout(widths = c(2, 1)) & theme(legend.position = "right")
-
 combined_plot <- (bar_plot) + (voronoi_plot + theme(legend.position = "right")) +
   plot_layout(widths = c(1, 2))
 

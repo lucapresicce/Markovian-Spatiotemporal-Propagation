@@ -219,7 +219,7 @@ for (b in seq_len(BB)) {
   # True model
   cat("  [ True      ] ... ")
   set.seed(b)
-  out_true <- spFFBS_v2(
+  out_true <- spFFBS(
     Y = Y_obs, X = X_obs, D = D,
     grid  = list(tau = tau_true, phi = phi_true),
     prior = prior_v2, G_beta = NULL, rho = 1.0,
@@ -250,7 +250,7 @@ for (b in seq_len(BB)) {
   # M-CLOSED
   cat("  [ DYNBPS-C  ] ... ")
   set.seed(b)
-  out_C <- spFFBS_v2(
+  out_C <- spFFBS(
     Y = Y_obs, X = X_obs, D = D,
     grid  = list(tau = tau_C, phi = phi_C),
     prior = prior_v2, G_beta = NULL, rho = 1.0,
@@ -309,7 +309,7 @@ for (b in seq_len(BB)) {
               paste(phi_O, collapse = ", ")))
   
   set.seed(b)
-  out_O <- spFFBS_v2(
+  out_O <- spFFBS(
     Y = Y_obs, X = X_obs, D = D,
     grid  = list(tau = tau_O, phi = phi_O),
     prior = prior_v2, G_beta = NULL, rho = 1.0,
