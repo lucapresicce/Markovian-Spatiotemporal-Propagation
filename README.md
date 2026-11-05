@@ -70,7 +70,10 @@ In this section are displayed [`copernicus_temporal_forecast_points.png`](./plot
 
 ### Supplementary Section 3.1 - Computational comparison against MCMC
 
-Running [`DYNBPSvsMCMC-simulation.R`](./script/DYNBPSvsMCMC-simulation.R) produces the results contained in Table S1.
+Running [`DYNBPSvsMCMC-simulation.R`](./script/DYNBPSvsMCMC-simulation.R) produces the results, contained in the following object:
+* _replication results_: [`data/dynbps_vs_mcmc.rds`](./data/dynbps_vs_mcmc.rds);
+
+In this section, the results [`data/dynbps_vs_mcmc.rds`](./data/dynbps_vs_mcmc.rds) are collected in a Table.
 
 ### Supplementary Section 3.2 - Space-time weights dynamics
 
