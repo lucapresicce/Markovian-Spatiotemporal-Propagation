@@ -47,12 +47,16 @@ devtools::install_github("lucapresicce/spFFBS")
 ```
 The [`script`](./script) folder also includes the Rcpp source [`FFBS-DYNBPS-struct-v2.cpp`](./script/FFBS-DYNBPS-struct-v2.cpp) and its R wrapper [`FFBS-DYNBPS-v2.R`](./script/FFBS-DYNBPS-v2.R), compiled automatically at runtime via `Rcpp::sourceCpp()`. These files are provided to ensure full reproducibility ahead of the forthcoming `spFFBS` CRAN new release, which will incorporate these routines natively.
 
-### Section 4.1 - Amortized Bayesian Forecast
+### Section 4.1 - Model class influence
 
-Running [`ABF-genfun.R`](./script/ABF-genfun.R), [`ABF-simulation.R`](./script/ABF-simulation.R) produce the results, contained in the following objects: 
-* _interpolation plots_: [`heatmap_amortized_Om.png`](./plots/heatmap_amortized_Om.png), [`heatmap_amortized_Y.png`](./plots/heatmap_amortized_Y.png).
+Running [`MclosedMopen-simulation.R`](./script/MclosedMopen-simulation.R) produces the results and all associated figures, contained in the following objects:
+* _replication results_: `replication_results.RData`;
+* _posterior metrics plot_: [`plot_theta_C.png`](./plots/plot_theta_C.png), [`plot_theta_O.png`](./plots/plot_theta_O.png), [`plot_omega_C.png`](./plots/plot_omega_C.png), [`plot_omega_O.png`](./plots/plot_omega_O.png), [`plot_sigma.png`](./plots/plot_sigma.png);
+* _predictive metrics plot_: [`plot_pred.png`](./plots/plot_pred.png).
 
-In this section, [`heatmap_amortized_Om.png`](./plots/heatmap_amortized_Om.png) is displayed as a Figure. We present [`heatmap_amortized_Y.png`](./plots/heatmap_amortized_Y.png) in Supplementary Section 5.
+In this section are displayed [`plot_sigma.png`](./plots/plot_sigma.png), and [`plot_pred.png`](./plots/plot_pred.png) as Figures, and the contents of 50 replications, collected in `replication_results.Rdata`. While Figures [`plot_theta_C.png`](./plots/plot_theta_C.png), [`plot_theta_O.png`](./plots/plot_theta_O.png), [`plot_omega_C.png`](./plots/plot_omega_C.png), [`plot_omega_O.png`](./plots/plot_omega_O.png), are presented in the Supplementary Section 5.
+
+**Note:** The output file `replications_results.RData` is **not included in this repository** because its size exceeds GitHub's 100 MB limit (the file is approximately 9 GB). However, it is **fully reproducible** by running the script [`MclosedMopen-simulation.R`](./script/MclosedMopen-simulation.R). Please be aware that this script may take a **long time to execute**, depending on your system’s resources. If needed, the original `replications_results.RData` file can be provided upon request. 
 
 ### Section 5 - Copernicus case study analysis
 
@@ -64,16 +68,9 @@ In this section are displayed [`copernicus_temporal_forecast_points.png`](./plot
 
 **Note:** The input data [`data/copernicus_data.Rdata`](./data/copernicus_data.Rdata) and [`data/copernicus_predictors.Rdata`](./data/copernicus_predictors.Rdata) are available in the repository. The hyperparameter grid [`data/variogram_informed_grid.Rdata`](./data/variogram_informed_grid.Rdata) is produced by the EDA script below but is available directly without being generated first.
 
-### Supplementary Section 3.1 - Model class influence
+### Supplementary Section 3.1 - Computational comparison against MCMC
 
-Running [`MclosedMopen-simulation.R`](./script/MclosedMopen-simulation.R) produces the results and all associated figures, contained in the following objects:
-* _replication results_: `replication_results.RData`;
-* _posterior metrics plot_: [`plot_theta_C.png`](./plots/plot_theta_C.png), [`plot_theta_O.png`](./plots/plot_theta_O.png), [`plot_omega_C.png`](./plots/plot_omega_C.png), [`plot_omega_O.png`](./plots/plot_omega_O.png), [`plot_sigma.png`](./plots/plot_sigma.png);
-* _predictive metrics plot_: [`plot_pred.png`](./plots/plot_pred.png).
-
-In this section are displayed [`plot_theta_C.png`](./plots/plot_theta_C.png), [`plot_theta_O.png`](./plots/plot_theta_O.png), [`plot_omega_C.png`](./plots/plot_omega_C.png), [`plot_omega_O.png`](./plots/plot_omega_O.png), [`plot_sigma.png`](./plots/plot_sigma.png), and [`plot_pred.png`](./plots/plot_pred.png) as Figures, and the contents of 50 replications, collected in `replication_results.Rdata`.
-
-**Note:** The output file `replications_results.RData` is **not included in this repository** because its size exceeds GitHub's 100 MB limit (the file is approximately 9 GB). However, it is **fully reproducible** by running the script [`MclosedMopen-simulation.R`](./script/MclosedMopen-simulation.R). Please be aware that this script may take a **long time to execute**, depending on your system’s resources. If needed, the original `replications_results.RData` file can be provided upon request.
+Running [`DYNBPSvsMCMC-simulation.R`](./script/DYNBPSvsMCMC-simulation.R) produces the results contained in Table S1.
 
 ### Supplementary Section 3.2 - Space-time weights dynamics
 
